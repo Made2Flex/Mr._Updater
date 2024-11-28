@@ -577,14 +577,21 @@ update_system() {
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
-                echo -e "${ORANGE}==>> Inspecting yay's cache...${NC}"
+                echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
                 # Check yay cache exists
                 if [ -d "$HOME/.cache/yay" ]; then
-                    # Find and remove only subdirectories in yay's cache
-                    find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$" | while read -r dir; do
-                        echo -e "${ORANGE}==>> Cleaning yay's cache directory: $(basename "$dir")${NC}"
-                        rm -rf "$dir"
-                    done
+                    # Check if yay cache is empty
+                    if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
+                        echo -e "${BLUE}  >> yay cache is clean${NC}"
+                    else
+                        # Find and remove only subdirectories in yay's cache
+                        find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$" | while read -r dir; do
+                            echo -e "${ORANGE}==>> Cleaning yay cache directory: $(basename "$dir")${NC}"
+                            rm -rf "$dir"
+                        done
+                    fi
+                else
+                    echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
                 yay -Sua
