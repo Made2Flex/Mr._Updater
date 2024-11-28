@@ -256,7 +256,7 @@ detect_distribution() {
             "manjaro")
                 DISTRO="Manjaro Linux"
                 PACKAGE_MANAGER="pacman"
-                MIRROR_REFRESH_CMD="pacman-mirrors --geoip"
+                MIRROR_REFRESH_CMD="sudo pacman-mirrors --geoip"
                 ;;
             "endeavouros")
                 DISTRO="EndeavourOS"
@@ -671,15 +671,22 @@ update_system() {
                 echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
                 # Check yay cache exists
                 if [ -d "$HOME/.cache/yay" ]; then
-                    # Check if yay cache is empty
+                # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
                         echo -e "${BLUE}  >> yay cache is clean${NC}"
                     else
-                        # Find and remove only subdirectories in yay's cache
-                        find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$" | while read -r dir; do
-                            echo -e "${ORANGE}==>> Cleaning yay cache directory: $(basename "$dir")${NC}"
-                            rm -rf "$dir"
-                        done
+                        # Collect directories to be cleaned
+                        mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
+                        
+                        if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
+                            echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
+                            printf "${WHITE}  - %s\n${NC}" "$(basename "${yay_cache_dirs[@]}")"
+                        
+                        # Remove the directories
+                        for dir in "${yay_cache_dirs[@]}"; do
+                                rm -rf "$dir"
+                            done
+                        fi
                     fi
                 else
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
