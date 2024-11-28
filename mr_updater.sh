@@ -27,6 +27,97 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
 EOF
 }
 
+# Function to check for Pacman database errors and offer to run Ppm_db_fixer
+check_pacman_db_error() {
+    local error_message="$1"
+    
+    # Only proceed if the error message matches specific database-related patterns
+    if [[ "$error_message" =~ (database|keyring|sync|lock|gnupg) ]]; then
+        echo -e "${YELLOW}==>> Potential Pacman database issue detected.${NC}"
+        echo -e "${YELLOW}==>> Checking Pacman database integrity...${NC}"
+        if ! sudo pacman -Dk; then
+            echo -e "${RED}!! Database issue detected: $error_message${NC}"
+        fi
+        
+        read -rp "$(echo -e "${MAGENTA}Would you like to run the Pacman database repair script? (y/N)${NC} ")" repair_choice
+        
+        # Convert input to lowercase
+        repair_choice=$(echo "$repair_choice" | tr '[:upper:]' '[:lower:]')
+        
+        if [[ "$repair_choice" == "y" || "$repair_choice" == "yes" ]]; then
+            # Check if Ppm_db_fixer.sh exists in the same directory
+            local script_dir
+            script_dir=$(dirname "$(readlink -f "$0")")
+            local db_fixer_script="${script_dir}/Ppm_db_fixer.sh"
+            
+            if [[ ! -f "$db_fixer_script" ]]; then
+                echo -e "${YELLOW}Ppm_db_fixer.sh not found. Attempting to download...${NC}"
+                
+                # Check if git is installed
+                if ! command -v git &> /dev/null; then
+                    echo -e "${ORANGE}Git is not installed. Attempting to install...${NC}"
+                    sudo pacman -S --noconfirm git
+                fi
+                
+                # Clone the repository
+                echo -e "${LIGHT_BLUE}==>> Cloning Ppm_db_fixer from GitHub...${NC}"
+                if git clone https://github.com/Made2Flex/Ppm_db_fixer.git "$script_dir/Ppm_db_fixer"; then
+                    db_fixer_script="$script_dir/Ppm_db_fixer/Ppm_db_fixer.sh"
+                    
+                    # Make the script executable
+                    echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
+                    chmod +x -v "$db_fixer_script"
+                    
+                    echo -e "${GREEN}Successfully downloaded Ppm_db_fixer.sh${NC}"
+                else
+                    echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
+                    echo -e "${YELLOW}Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
+                    return 1
+                fi
+            fi
+            
+            # Run the database repair script
+            if [[ -f "$db_fixer_script" ]]; then
+                echo -e "${LIGHT_BLUE}==>> Running Pacman database repair script...${NC}"
+                sudo bash "$db_fixer_script"
+                return $?  # Return the exit status of the repair script
+            else
+                echo -e "${RED}!! Pacman database repair script not found.${NC}"
+                echo -e "${YELLOW}Please download Ppm_db_fixer.sh and run it manually.${NC}"
+                return 1
+            fi
+        else
+            echo -e "${ORANGE}Skipping Pacman database repair.${NC}"
+            return 1
+        fi
+    fi
+    
+    # If no database-related error was detected
+    return 0
+}
+
+# Run_command function
+run_command() {
+    local command="$1"
+    local output
+    
+    # Capture both stdout and stderr
+    output=$(eval "$command" 2>&1)
+    local exit_code=$?
+    
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}Command failed with exit code $exit_code:${NC}"
+        echo "$output"
+        
+        # Pass the error output to check_pacman_db_error
+        check_pacman_db_error "$output"
+        
+        return 1
+    fi
+    
+    return 0
+}
+
 # Function to check if running in a terminal and offer to open one if not
 get_script_path() {
     # Resolve the full path of the current script
