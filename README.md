@@ -44,7 +44,7 @@ git clone https://github.com/Made2Flex/Mr._Updater.git
 chmod +x update_multi-distro0.sh
 
 ## 💻 Usage
-./mr._updater.sh
+./mr_updater.sh
 
 ### Script Workflow
 1. Checks terminal environment
