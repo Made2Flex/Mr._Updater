@@ -660,5 +660,6 @@ main() {
     check_mirror_source_refreshed
     prompt_update
 }
+
 # BoomShackalaka!!
 main
