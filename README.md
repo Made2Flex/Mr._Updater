@@ -38,13 +38,13 @@ A powerful, multi-distribution system update script that supports various Linux 
 ## 🛠 Installation
 
 1. Clone the repository:   
-git clone https://github.com/yourusername/multi-distro-update.git
+git clone https://github.com/Made2Flex/Mr._Updater.git
 
 2. Make the script executable:
 chmod +x update_multi-distro0.sh
 
 ## 💻 Usage
-./update_multi-distro0.sh
+./mr._updater.sh
 
 ### Script Workflow
 1. Checks terminal environment
