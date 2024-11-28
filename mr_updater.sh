@@ -671,7 +671,7 @@ update_system() {
                 echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
                 # Check yay cache exists
                 if [ -d "$HOME/.cache/yay" ]; then
-                # Check if yay cache is empty
+                    # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
                         echo -e "${BLUE}  >> yay cache is clean${NC}"
                     else
