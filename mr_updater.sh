@@ -267,7 +267,7 @@ detect_distribution() {
             "debian"|"ubuntu"|"linuxmint")
                 DISTRO="Debian-based"
                 PACKAGE_MANAGER="apt"
-                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US"
+                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US" # change US to your actual country.
                 ;;
             *)
                 echo -e "${RED}!!! Unsupported distribution: $DISTRO_ID${NC}"
@@ -562,7 +562,7 @@ check_mirror_source_refreshed() {
 
                     echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
                 else
-                    echo -e "${LIGHT_BLUE}  >> Mirror source is fresh. Moving On!${NC}"
+                    echo -e "${GREEN}  >> Mirror source is fresh. Moving On!${NC}"
                 fi
             else
                 echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
@@ -673,7 +673,7 @@ update_system() {
                 if [ -d "$HOME/.cache/yay" ]; then
                     # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
-                        echo -e "${BLUE}  >> yay cache is clean${NC}"
+                        echo -e "${GREEN}  >> yay cache is clean${NC}"
                     else
                         # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
@@ -696,7 +696,7 @@ update_system() {
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
-            echo -e "${ORANGE}==>> Checking for package updates...${NC}"
+            echo -e "${ORANGE}==>> Checking for package updates.${NC}"
 
             # Start spinner in background
             start_spinner_spinner
@@ -712,7 +712,7 @@ update_system() {
 
             # Check command result
             if [ $exit_status -eq 0 ] && echo "$update_output" | grep -q 'packages can be upgraded'; then
-                echo -e "${LIGHT_BLUE}==>> Updates Have Been Found!${NC}"
+                echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
                 echo -e "${ORANGE}==>> Now Witness MEOW POWA!!!!!${NC}"
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
                 echo -e "${GREEN}==>> System has been updated!${NC}"
