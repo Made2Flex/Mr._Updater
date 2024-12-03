@@ -490,7 +490,7 @@ create_aur_pkg_list() {
                 echo "$AUR_PACKAGES"
 
                 if [ -n "$AUR_PACKAGES" ]; then
-                    echo -e "${BLUE}  >> Copy Has Been Placed In $aur_pkg_list_file${NC}"
+                    echo -e "${BLUE}  >> Copy has been placed in $aur_pkg_list_file${NC}"
                     return 0  # Indicate AUR packages exist
                 else
                     echo -e "${LIGHT_BLUE}  >> No AUR packages found.${NC}"
@@ -692,7 +692,7 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                yay -Sua --norebuild --noredownload --removemake --answerclean y --noanswerdiff --noansweredit
+                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
