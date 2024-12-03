@@ -219,7 +219,7 @@ get_system_language() {
     esac
 }
 
-# Modify greet_user function
+# Function to greet user
 greet_user() {
     local username
     username=$(whoami)
