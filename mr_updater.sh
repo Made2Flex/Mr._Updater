@@ -562,7 +562,7 @@ check_mirror_source_refreshed() {
 
                     echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror source is fresh. Moving On!${NC}"
+                    echo -e "${GREEN}  >> Mirror source is fresh. moving on!${NC}"
                 fi
             else
                 echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
