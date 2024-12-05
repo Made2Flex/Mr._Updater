@@ -692,7 +692,7 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit
+                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
