@@ -96,7 +96,7 @@ check_pacman_db_error() {
     return 0
 }
 
-# Run_command function
+# Function to run command, check for errors and pass it to check_pacman_db_error
 run_command() {
     local command="$1"
     local output
@@ -122,13 +122,6 @@ run_command() {
 get_script_path() {
     # Resolve the full path of the current script
     readlink -f "$0"
-}
-
-run_command() {
-    local command="$1"
-    if ! eval "$command" 2>/dev/null; then
-        return 1
-    fi
 }
 
 check_terminal() {
@@ -193,27 +186,27 @@ get_system_language() {
     case "$language_code" in
         "es")
             # Spanish translations
-            GREET_MESSAGE="¡Hola, %s-sama!"
+            GREET_MESSAGE="¡Hola, %s-sama"
             UPDATE_PROMPT="¿Quieres actualizar ahora? (Sí/No): "
             ;;
         "fr")
             # French translations
-            GREET_MESSAGE="Bonjour, %s-sama!"
+            GREET_MESSAGE="Bonjour, %s-sama"
             UPDATE_PROMPT="Voulez-vous mettre à jour maintenant ? (Oui/Non) : "
             ;;
         "de")
             # German translations
-            GREET_MESSAGE="Hallo, %s-sama!"
+            GREET_MESSAGE="Hallo, %s-sama"
             UPDATE_PROMPT="Möchten Sie jetzt aktualisieren? (Ja/Nein): "
             ;;
         "ja")
             # Japanese translations
-            GREET_MESSAGE="%s-sama、こんにちは！"
+            GREET_MESSAGE="%s-sama、こんにちは"
             UPDATE_PROMPT="今すぐ更新しますか？ (はい/いいえ): "
             ;;
         *)
             # Default to English
-            GREET_MESSAGE="Hello, %s-sama!"
+            GREET_MESSAGE="Hello, %s-sama"
             UPDATE_PROMPT="Do you want to update Now? (Yes/No): "
             ;;
     esac
@@ -231,7 +224,7 @@ greet_user() {
     printf "${GREEN}$GREET_MESSAGE${NC}\n" "$username"
 }
 
-# New function to detect distribution
+# Function to detect distribution
 detect_distribution() {
     # Default values
     DISTRO=""
@@ -282,7 +275,7 @@ detect_distribution() {
     fi
 }
 
-# Updated check_dependencies function
+# Function to check_dependencies
 check_dependencies() {
     # Detect distribution first
     detect_distribution
@@ -400,7 +393,7 @@ create_timestamped_log() {
     echo "$timestamped_log_file"
 }
 
-# function to create pkglist with timestamped logging
+# Function to create pkglist with timestamped logging
 create_pkg_list() {
     local log_file=""
     local pkg_list_file=""
@@ -472,7 +465,7 @@ create_pkg_list() {
 # Global variable to store AUR packages
 AUR_PACKAGES=""
 
-# function to create aur-pkglist with timestamped logging
+# Function to create aur-pkglist with timestamped logging
 create_aur_pkg_list() {
     # Only proceed for Arch-based distributions
     case "$DISTRO_ID" in
