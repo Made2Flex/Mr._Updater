@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 
+set -euo pipefail  # Improved error handling
+# -e: exit on error
+# -u: treat unset variables as an error
+# -o pipefail: ensure pipeline errors are captured
+
 # Color definitions
 GREEN='\033[1;32m'
 ORANGE='\033[1;33m'
@@ -25,6 +30,33 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
           $$ |
           \__|
 EOF
+}
+
+# Utility function for dynamic color-changing a line
+dynamic_color_line() {
+    local message="$1"
+    #local colors=("red" "yellow" "green" "cyan" "magenta" "blue")
+    local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
+    local NC="\033[0m"
+    local delay=0.1
+    local iterations=${2:-30}  # Default 30 iterations, but allow customization
+
+    {
+        for ((i=1; i<=iterations; i++)); do
+            # Cycle through colors
+            color=${colors[$((i % ${#colors[@]}))]}
+
+            # Use \r to return to start of line, update with new color
+            printf "\r${color}==>> ${message}${NC}"
+
+            sleep "$delay"
+        done
+
+        # Final clear line
+        #printf "\r\033[K"
+        # Add a newline to move to the next line
+        printf "\n"
+    } >&2
 }
 
 # Function to check for Pacman database errors and offer to run Ppm_db_fixer
@@ -96,7 +128,7 @@ check_pacman_db_error() {
     return 0
 }
 
-# Run_command function
+# Function to run command, check for errors and pass it to check_pacman_db_error
 run_command() {
     local command="$1"
     local output
@@ -122,13 +154,6 @@ run_command() {
 get_script_path() {
     # Resolve the full path of the current script
     readlink -f "$0"
-}
-
-run_command() {
-    local command="$1"
-    if ! eval "$command" 2>/dev/null; then
-        return 1
-    fi
 }
 
 check_terminal() {
@@ -193,27 +218,27 @@ get_system_language() {
     case "$language_code" in
         "es")
             # Spanish translations
-            GREET_MESSAGE="¡Hola, %s-sama!"
+            GREET_MESSAGE="¡Hola, %s-sama"
             UPDATE_PROMPT="¿Quieres actualizar ahora? (Sí/No): "
             ;;
         "fr")
             # French translations
-            GREET_MESSAGE="Bonjour, %s-sama!"
+            GREET_MESSAGE="Bonjour, %s-sama"
             UPDATE_PROMPT="Voulez-vous mettre à jour maintenant ? (Oui/Non) : "
             ;;
         "de")
             # German translations
-            GREET_MESSAGE="Hallo, %s-sama!"
+            GREET_MESSAGE="Hallo, %s-sama"
             UPDATE_PROMPT="Möchten Sie jetzt aktualisieren? (Ja/Nein): "
             ;;
         "ja")
             # Japanese translations
-            GREET_MESSAGE="%s-sama、こんにちは！"
+            GREET_MESSAGE="%s-sama、こんにちは"
             UPDATE_PROMPT="今すぐ更新しますか？ (はい/いいえ): "
             ;;
         *)
             # Default to English
-            GREET_MESSAGE="Hello, %s-sama!"
+            GREET_MESSAGE="Hello, %s-sama"
             UPDATE_PROMPT="Do you want to update Now? (Yes/No): "
             ;;
     esac
@@ -231,7 +256,7 @@ greet_user() {
     printf "${GREEN}$GREET_MESSAGE${NC}\n" "$username"
 }
 
-# New function to detect distribution
+# Function to detect distribution
 detect_distribution() {
     # Default values
     DISTRO=""
@@ -282,7 +307,19 @@ detect_distribution() {
     fi
 }
 
-# Updated check_dependencies function
+# Function to warn user about manual installation
+warn_manual_install() {
+    echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
+    echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
+    echo -e "  1. Download the dep_package from the internet"
+    echo -e "  2. Use: sudo dpkg -i dep_package.deb"
+    dynamic_color_line "Manual intervention required to install deps."
+    sleep 1
+    echo -e "${ORANGE} ==>> Now exiting...${NC}"
+    exit 1
+}
+
+# Function to check_dependencies
 check_dependencies() {
     # Detect distribution first
     detect_distribution
@@ -342,7 +379,7 @@ check_dependencies() {
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
                         if sudo pacman -S --noconfirm yay 2>/dev/null; then
-                            echo -e "${GREEN}Successfully installed yay from repo${NC}"
+                            echo -e "${GREEN}  >> ✓Successfully installed yay from repo${NC}"
                         else
                             echo -e "${RED}!! Failed to install yay from repo.${NC}"
                             echo -e "${LIGHT_BLUE}  >> Installing git and building from AUR...${NC}"
@@ -361,26 +398,33 @@ check_dependencies() {
                         git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
                         if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
                             sudo pacman -Rns --noconfirm git
+                        else
+                            echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
                         fi
                     fi
                     ;;
                 "debian"|"ubuntu"|"linuxmint")
-                    # Debian-based specific installations
-                    if [[ " ${missing_deps[@]} " =~ " nala " ]]; then
-                        echo -e "${BLUE}  >> Installing nala...${NC}"
-                        sudo apt update
-                        sudo apt install -y nala
-                    fi
+                    # Check if apt is available
+                        if command -v apt &> /dev/null; then
+                            for dep in "${missing_deps[@]}"; do
+                                echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
+                                sudo apt install -y "$dep"
+                            done
+                        fi
                     ;;
                 *)
                     echo -e "${RED}!! Unsupported distribution for dependency installation.${NC}"
+                    warn_manual_install
                     exit 1
                     ;;
             esac
 
-            echo -e "${GREEN}==>> Dependencies installed successfully!${NC}"
+            echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
+            dynamic_color_line "Try to install them manually, then run the script again."
+            sleep 1
+            echo -e "${ORANGE} ==>> Now exiting."
             exit 1
         fi
     fi
@@ -400,7 +444,7 @@ create_timestamped_log() {
     echo "$timestamped_log_file"
 }
 
-# function to create pkglist with timestamped logging
+# Function to create pkglist with timestamped logging
 create_pkg_list() {
     local log_file=""
     local pkg_list_file=""
@@ -472,7 +516,7 @@ create_pkg_list() {
 # Global variable to store AUR packages
 AUR_PACKAGES=""
 
-# function to create aur-pkglist with timestamped logging
+# Function to create aur-pkglist with timestamped logging
 create_aur_pkg_list() {
     # Only proceed for Arch-based distributions
     case "$DISTRO_ID" in
@@ -490,7 +534,7 @@ create_aur_pkg_list() {
                 echo "$AUR_PACKAGES"
 
                 if [ -n "$AUR_PACKAGES" ]; then
-                    echo -e "${BLUE}  >> Copy Has Been Placed In $aur_pkg_list_file${NC}"
+                    echo -e "${BLUE}  >> Copy has been placed in $aur_pkg_list_file${NC}"
                     return 0  # Indicate AUR packages exist
                 else
                     echo -e "${LIGHT_BLUE}  >> No AUR packages found.${NC}"
@@ -541,7 +585,7 @@ check_mirror_source_refreshed() {
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN}  >> eos-rankmirrors completed successfully${NC}"
+                                echo -e "${GREEN}  >> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
@@ -550,7 +594,7 @@ check_mirror_source_refreshed() {
                         if command -v reflector &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
-                                echo -e "${GREEN}  >> reflector completed successfully${NC}"
+                                echo -e "${GREEN}  >> reflector completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! reflector failed${NC}"
                             fi
@@ -562,7 +606,7 @@ check_mirror_source_refreshed() {
 
                     echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror source is fresh. Moving On!${NC}"
+                    echo -e "${GREEN}  >> Mirror source is fresh. moving on!${NC}"
                 fi
             else
                 echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
@@ -692,7 +736,7 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                yay -Sua
+                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
