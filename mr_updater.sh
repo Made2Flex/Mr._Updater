@@ -535,22 +535,22 @@ create_aur_pkg_list() {
 
                 if [ -n "$AUR_PACKAGES" ]; then
                     echo -e "${BLUE}  >> Copy has been placed in $aur_pkg_list_file${NC}"
-                    return 0  # Indicate AUR packages exist
+                    return 0
                 else
                     echo -e "${LIGHT_BLUE}  >> No AUR packages found.${NC}"
-                    return 1  # Indicate no AUR packages
+                    return 0
                 fi
             else
                 # Create timestamped log file for the error
                 local timestamped_log=$(create_timestamped_log "$log_file")
                 echo "$error_output" > "$timestamped_log"
                 echo -e "${RED}!! Error getting AUR package list. See $timestamped_log for details.${NC}"
-                return 1
+                return 0
             fi
             ;;
         *)
             echo -e "${LIGHT_BLUE}  >> Skipping AUR package list (not an Arch-based distribution)${NC}"
-            return 1
+            return 0
             ;;
     esac
 }
@@ -763,8 +763,10 @@ update_system() {
             elif [ $exit_status -ne 0 ]; then
                 echo -e "${RED}!!! Update check failed. See output below:${NC}"
                 echo "$update_output"
+                return 1
             else
                 echo -e "${ORANGE}==>> No packages to update.${NC}"
+                return 0
             fi
             ;;
         *)
