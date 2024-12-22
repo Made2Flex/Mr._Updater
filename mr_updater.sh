@@ -59,12 +59,35 @@ dynamic_color_line() {
     } >&2
 }
 
+# Function to check if pacman db is locked
+check_db_lock() {
+    if [[ -f /var/lib/pacman/db.lck ]]; then
+        echo -e "${RED}!!! Pacman database is locked.${NC}"
+        return 1 # Return failure instead of exiting
+    fi
+    return 0 # Return success if no lock is found
+}
+
+# Function to remove pacman db lock
+remove_db_lock() {
+    echo -e "${LIGHT_BLUE}==>> Removing pacman db lock...${NC}"
+    sudo rm -fv /var/lib/pacman/db.lck
+}
+
 # Function to check for Pacman database errors and offer to run Ppm_db_fixer
 check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (database|keyring|sync|lock|gnupg) ]]; then
+    if [[ "$error_message" =~ (lock) ]]; then
+        # Remove db lock if it exists
+        echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
+        if ! check_db_lock; then
+            remove_db_lock
+        else
+            echo -e "${GREEN}>> Pacman db lock not found.${NC}"
+        fi
+    elif [[ "$error_message" =~ (database|keyring|sync|gnupg) ]]; then
         echo -e "${YELLOW}==>> Potential Pacman database issue detected.${NC}"
         echo -e "${YELLOW}==>> Checking Pacman database integrity...${NC}"
         if ! sudo pacman -Dk; then
@@ -83,11 +106,11 @@ check_pacman_db_error() {
             local db_fixer_script="${script_dir}/Ppm_db_fixer.sh"
             
             if [[ ! -f "$db_fixer_script" ]]; then
-                echo -e "${YELLOW}Ppm_db_fixer.sh not found. Attempting to download...${NC}"
+                echo -e "${YELLOW}==>> Ppm_db_fixer.sh not found. Attempting to download...${NC}"
                 
                 # Check if git is installed
                 if ! command -v git &> /dev/null; then
-                    echo -e "${ORANGE}Git is not installed. Attempting to install...${NC}"
+                    echo -e "${ORANGE}==>> Git is not installed. Attempting to install...${NC}"
                     sudo pacman -S --noconfirm git
                 fi
                 
@@ -100,10 +123,10 @@ check_pacman_db_error() {
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
                     chmod +x -v "$db_fixer_script"
                     
-                    echo -e "${GREEN}Successfully downloaded Ppm_db_fixer.sh${NC}"
+                    echo -e "${GREEN}==>> ✓ Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
                     echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
-                    echo -e "${YELLOW}Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
+                    echo -e "${YELLOW}==>> Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
                     return 1
                 fi
             fi
@@ -218,27 +241,27 @@ get_system_language() {
     case "$language_code" in
         "es")
             # Spanish translations
-            GREET_MESSAGE="¡Hola, %s-sama"
-            UPDATE_PROMPT="¿Quieres actualizar ahora? (Sí/No): "
+            GREET_MESSAGE="¡Hola, %s"
+            UPDATE_PROMPT="¿Quieres actualizar el systema ahora? (Sí/No): "
             ;;
         "fr")
             # French translations
-            GREET_MESSAGE="Bonjour, %s-sama"
+            GREET_MESSAGE="Bonjour, %s"
             UPDATE_PROMPT="Voulez-vous mettre à jour maintenant ? (Oui/Non) : "
             ;;
         "de")
             # German translations
-            GREET_MESSAGE="Hallo, %s-sama"
+            GREET_MESSAGE="Hallo, %s"
             UPDATE_PROMPT="Möchten Sie jetzt aktualisieren? (Ja/Nein): "
             ;;
         "ja")
             # Japanese translations
-            GREET_MESSAGE="%s-sama、こんにちは"
+            GREET_MESSAGE="%s、こんにちは"
             UPDATE_PROMPT="今すぐ更新しますか？ (はい/いいえ): "
             ;;
         *)
             # Default to English
-            GREET_MESSAGE="Hello, %s-sama"
+            GREET_MESSAGE="Hello, %s"
             UPDATE_PROMPT="Do you want to update Now? (Yes/No): "
             ;;
     esac
@@ -781,7 +804,7 @@ prompt_update() {
     while true; do
         # Use localized prompt
         get_system_language
-        read -rp "$UPDATE_PROMPT" answer
+        read -rp "$(echo -e "${MAGENTA}$UPDATE_PROMPT")" answer
         answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
 
         if [[ -z "$answer" || "$answer" == "yes" || "$answer" == "y" ]]; then
@@ -790,13 +813,122 @@ prompt_update() {
         elif [[ "$answer" == "no" || "$answer" == "n" ]]; then
             echo -e "${ORANGE}<< You have chosen not to upgrade.${NC}"
             echo -e "${ORANGE}<< There is nothing to do...${NC}"
-            sleep 1
             echo -e "${ORANGE}>> Meow Out!${NC}"
             break
         else
             echo -e "${RED}Invalid Input. Please Enter 'yes' or 'no'.${NC}"
         fi
     done
+}
+
+# Global variables to store BTRFS flags
+BTRFS_CHECKED=false
+BTRFS_SNAPSHOTS_SETUP=false
+
+# Path to the temporary state file
+# It stores the value of the above flags
+STATE_FILE="/tmp/btrfs_snapshot_state.txt"
+
+# Function to load the state from the STATE_FILE
+load_state() {
+    if [[ -f "$STATE_FILE" ]]; then
+        source "$STATE_FILE"
+    else
+        BTRFS_CHECKED=false
+        BTRFS_SNAPSHOTS_SETUP=false
+    fi
+}
+
+# Function to save the state to the STATE_FILE
+save_state() {
+    echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
+    echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
+}
+
+# Function to check if the filesystem is BTRFS and if snapshots are set up
+check_btrfs_snapshots() {
+    # Load the state from the STATE_FILE
+    load_state
+
+    # Check if the filesystem is BTRFS and if it hasn't been checked yet
+    if [[ "$BTRFS_CHECKED" == false && "$(lsblk -f | grep -E 'btrfs')" ]]; then
+        echo -e "${GREEN}==>> Detected BTRFS filesystem.${NC}"
+
+        # Check if BTRFS snapshots are set up
+        if [[ "$BTRFS_SNAPSHOTS_SETUP" == false ]]; then
+            echo -e "${ORANGE}==>> Checking if BTRFS snapshots are set up...${NC}"
+
+            # Use btrfs command to check for existing snapshots
+            if sudo btrfs subvolume list / | grep -q "snapshot"; then
+                echo -e "${GREEN}  >> BTRFS snapshots are already set up.${NC}"
+                BTRFS_SNAPSHOTS_SETUP=true
+            else
+                echo -e "${RED}==>> BTRFS snapshots are not set up.${NC}"
+                read -rp "$(echo -e "${MAGENTA}Would you like to set up BTRFS snapshots? (y/N)${NC} ")" setup_choice
+                setup_choice=$(echo "$setup_choice" | tr '[:upper:]' '[:lower:]')
+
+                if [[ "$setup_choice" == "y" || "$setup_choice" == "yes" || -z "$setup_choice" ]]; then
+                    # Check if git is installed
+                    if ! command -v git &> /dev/null; then
+                        echo -e "${ORANGE}==>> Git is not installed, but its needed. Attempting to install...${NC}"
+                        sudo pacman -S --noconfirm git || {
+                            echo -e "${RED}!! Failed to install git. Please install it manually.${NC}"
+                            exit 1
+                        }
+                    fi
+
+                    # Clone and run setupsnapshots.sh
+                    local script_dir
+                    script_dir=$(dirname "$(get_script_path)")
+                    local setup_script="${script_dir}/setupsnapshots.sh"
+
+                    if [[ ! -f "$setup_script" ]]; then
+                        echo -e "${LIGHT_BLUE}==>> Cloning setupsnapshots script...${NC}"
+                        git clone https://github.com/Made2Flex/setupsnapshots.git "$script_dir/setupsnapshots"
+                        setup_script="$script_dir/setupsnapshots/setupsnapshots.sh"
+                    fi
+
+                    if [[ -f "$setup_script" ]]; then
+                        echo -e "${LIGHT_BLUE}==>> Running the setupsnapshots script...${NC}"
+                        bash "$setup_script"
+                        if [[ $? -eq 0 ]]; then
+                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓ successfully!${NC}"
+                            BTRFS_SNAPSHOTS_SETUP=true
+                        else
+                            echo -e "${RED}==>> Failed to set up BTRFS snapshots.${NC}"
+                        fi
+
+                        # Clean up
+                        echo -e "${ORANGE}==>> Removing previously created directory..."
+                        rm -rfv "$script_dir/setupsnapshots"
+
+                        # Prompt to remove git
+                        if command -v git &> /dev/null; then
+                            read -rp "$(echo -e "${MAGENTA}Would you like to remove previously installed git? (y/N)${NC} ")" git_remove_choice
+                            git_remove_choice=$(echo "$git_remove_choice" | tr '[:upper:]' '[:lower:]')
+
+                            if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
+                                sudo pacman -Rns --noconfirm git
+                            fi    
+                        fi
+                    else
+                        echo -e "${RED}!! setupsnapshots.sh not found after cloning.${NC}"
+                    fi
+                else
+                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false in /tmp/btrfs_snapshot_state.txt or remove the file.${NC}"
+                    echo -e "${ORANGE}==>> Skipping BTRFS snapshot setup.${NC}"
+                    BTRFS_CHECKED=true  # Set flag to avoid asking again
+                fi
+            fi
+        fi
+    elif [[ "$BTRFS_CHECKED" == true ]]; then
+        return 0
+    else
+        echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
+    fi
+
+    # Save the state to the file
+    save_state
 }
 
 # Alchemist den
@@ -809,6 +941,7 @@ main() {
     create_pkg_list
     create_aur_pkg_list
     check_mirror_source_refreshed
+    check_btrfs_snapshots
     prompt_update
 }
 
