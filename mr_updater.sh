@@ -79,7 +79,7 @@ check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (lock|locked) ]]; then
+    if [[ "$error_message" =~ (databases|lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
