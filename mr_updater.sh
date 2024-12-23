@@ -79,7 +79,7 @@ check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (lock) ]]; then
+    if [[ "$error_message" =~ (lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
@@ -935,7 +935,7 @@ check_btrfs_snapshots() {
         echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
     fi
 
-    # Save the state to the file
+    # Save the state to STATE_FILE
     save_state
 }
 
