@@ -84,6 +84,7 @@ check_pacman_db_error() {
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
             remove_db_lock
+            update_system
         else
             echo -e "${GREEN}>> Pacman db lock not found.${NC}"
         fi
@@ -747,10 +748,9 @@ update_system() {
                         
                         if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
                             echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
-                            printf "${WHITE}  - %s\n${NC}" "$(basename "${yay_cache_dirs[@]}")"
-                        
-                        # Remove the directories
-                        for dir in "${yay_cache_dirs[@]}"; do
+                            for dir in "${yay_cache_dirs[@]}"; do
+                                printf "${WHITE}  - %s\n${NC}" "$(basename "$dir")"  # Use basename for each directory
+                                # Remove the directories
                                 rm -rf "$dir"
                             done
                         fi
@@ -825,17 +825,24 @@ prompt_update() {
 BTRFS_CHECKED=false
 BTRFS_SNAPSHOTS_SETUP=false
 
-# Path to the temporary state file
+# Path to the STATE_FILE
 # It stores the value of the above flags
-STATE_FILE="/tmp/btrfs_snapshot_state.txt"
+STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 
 # Function to load the state from the STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
         source "$STATE_FILE"
     else
+        # Create the directory if it doesn't exist
+        mkdir -p "$(dirname "$STATE_FILE")"
+        
         BTRFS_CHECKED=false
         BTRFS_SNAPSHOTS_SETUP=false
+        
+        # Create the state file with default values if it doesn't exist
+        echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
+        echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
     fi
 }
 
@@ -853,6 +860,7 @@ check_btrfs_snapshots() {
     # Check if the filesystem is BTRFS and if it hasn't been checked yet
     if [[ "$BTRFS_CHECKED" == false && "$(lsblk -f | grep -E 'btrfs')" ]]; then
         echo -e "${GREEN}==>> Detected BTRFS filesystem.${NC}"
+        BTRFS_CHECKED=true
 
         # Check if BTRFS snapshots are set up
         if [[ "$BTRFS_SNAPSHOTS_SETUP" == false ]]; then
@@ -915,7 +923,7 @@ check_btrfs_snapshots() {
                         echo -e "${RED}!! setupsnapshots.sh not found after cloning.${NC}"
                     fi
                 else
-                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false in /tmp/btrfs_snapshot_state.txt or remove the file.${NC}"
+                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false and BTRFS_SNAPSHOTS_SETUP=false in /tmp/btrfs_snapshot_state.txt or remove the file.${NC}"
                     echo -e "${ORANGE}==>> Skipping BTRFS snapshot setup.${NC}"
                     BTRFS_CHECKED=true  # Set flag to avoid asking again
                 fi
