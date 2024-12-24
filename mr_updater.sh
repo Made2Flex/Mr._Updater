@@ -167,25 +167,21 @@ check_pacman_db_error() {
 run_command() {
     local command="$1"
     local output
-    local exit_status
 
     # Capture both stdout and stderr
-    output=$(eval "$command" 2>&1)
-    local exit_status=$?
+    output=$(eval "$command" 2>&1 | tee /dev/tty)
+    local exit_code=${PIPESTATUS[0]}
 
-    if [[ $exit_status -eq 0 ]] && echo "$output" | grep -q 'packages can be upgraded'; then
-        echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
-        sudo pacman -Syyuu --noconfirm --needed --color=auto
-        echo -e "${GREEN}==>> System has been updated!${NC}"
-    elif [[ $exit_status -ne 0 ]]; then
-            echo -e "${RED}!!! Update check failed with exit code $exit_status:${NC}"
-            echo "$output"
-            # Pass the error output to check_pacman_db_error
-            check_pacman_db_error "$output"
-            return 1
-         else
-            echo -e "${LIGHT_BLUE}  >> No Updates found${NC}"
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}Command failed with exit code $exit_code:${NC}"
+        echo "$output"
+
+        # Pass the error output to check_pacman_db_error
+        check_pacman_db_error "$output"
+
+        return 1
     fi
+
     return 0
 }
 
@@ -748,8 +744,13 @@ update_system() {
         "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
             # Use run_command to execute the pacman update
-            if ! run_command "sudo pacman -Syyuu"; then
-                return 1  # If the command fails, exit the function
+            output=$(checkupdates 2>&1)
+            exit_status=$?
+            if [[ $exit_status -eq 0 ]] && [[ -n "$output" ]]; then
+                echo -e "${ORANGE}  >> "Updates found. Proceeding with system update."
+                run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
+            else
+                echo "Pacman packages are up-to-date. No updates required."
             fi
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
