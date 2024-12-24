@@ -62,7 +62,7 @@ dynamic_color_line() {
 # Function to check if pacman db is locked
 check_db_lock() {
     if [[ -f /var/lib/pacman/db.lck ]]; then
-        echo -e "${RED}!!! Pacman database is locked.${NC}"
+        echo -e "${RED}  >> Pacman database is locked.${NC}"
         return 1 # Return failure instead of exiting
     fi
     return 0 # Return success if no lock is found
@@ -79,12 +79,23 @@ check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (databases|lock|locked) ]]; then
+    if [[ "$error_message" =~ (lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
-            remove_db_lock
-            update_system
+            remove_db_lock   
+            # Retry the pacman update after removing the lock
+            echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
+            if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
+                echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
+                return 1  # If the command fails, exit the function
+            fi
+            # Run yay to update AUR packages
+            echo -e "${ORANGE}==>> Updating AUR packages...${NC}"
+            if ! yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter; then
+                echo -e "${RED}!!! Failed to update AUR packages.${NC}"
+                return 1  # If the command fails, exit the function
+            fi
         else
             echo -e "${GREEN}>> Pacman db lock not found.${NC}"
         fi
@@ -156,21 +167,25 @@ check_pacman_db_error() {
 run_command() {
     local command="$1"
     local output
-    
+    local exit_status
+
     # Capture both stdout and stderr
     output=$(eval "$command" 2>&1)
-    local exit_code=$?
-    
-    if [[ $exit_code -ne 0 ]]; then
-        echo -e "${RED}Command failed with exit code $exit_code:${NC}"
-        echo "$output"
-        
-        # Pass the error output to check_pacman_db_error
-        check_pacman_db_error "$output"
-        
-        return 1
+    local exit_status=$?
+
+    if [[ $exit_status -eq 0 ]] && echo "$output" | grep -q 'packages can be upgraded'; then
+        echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
+        sudo pacman -Syyuu --noconfirm --needed --color=auto
+        echo -e "${GREEN}==>> System has been updated!${NC}"
+    elif [[ $exit_status -ne 0 ]]; then
+            echo -e "${RED}!!! Update check failed with exit code $exit_status:${NC}"
+            echo "$output"
+            # Pass the error output to check_pacman_db_error
+            check_pacman_db_error "$output"
+            return 1
+         else
+            echo -e "${LIGHT_BLUE}  >> No Updates found${NC}"
     fi
-    
     return 0
 }
 
@@ -732,7 +747,10 @@ update_system() {
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
-            sudo pacman -Syyuu --noconfirm --needed --color=auto
+            # Use run_command to execute the pacman update
+            if ! run_command "sudo pacman -Syyuu"; then
+                return 1  # If the command fails, exit the function
+            fi
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
@@ -778,7 +796,7 @@ update_system() {
             stop_spinner
 
             # Check command result
-            if [ $exit_status -eq 0 ] && echo "$update_output" | grep -q 'packages can be upgraded'; then
+            if [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -q 'packages can be upgraded'; then
                 echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
                 echo -e "${ORANGE}==>> Now Witness MEOW POWA!!!!!${NC}"
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
