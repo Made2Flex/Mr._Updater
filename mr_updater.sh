@@ -744,14 +744,16 @@ update_system() {
         "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
             # Use run_command to execute the pacman update
-            output=$(checkupdates 2>&1)
-            exit_status=$?
-            if [[ $exit_status -eq 0 ]] && [[ -n "$output" ]]; then
-                echo -e "${ORANGE}  >> "Updates found. Proceeding with system update."
-                run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
-            else
-                echo "Pacman packages are up-to-date. No updates required."
-            fi
+            # Run checkupdates and capture its output
+        output=$(checkupdates 2>/dev/null)
+
+        # Check if updates are available based on output
+        if [[ -n "$output" ]]; then
+            echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
+            run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
+        else
+            echo -e "${ORANGE}==>> Pacman packages are up-to-date. No updates required.${NC}"
+        fi
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
