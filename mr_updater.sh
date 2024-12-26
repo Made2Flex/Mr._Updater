@@ -378,8 +378,16 @@ check_dependencies() {
 
     # Check for missing dependencies
     for cmd in "${deps[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd")
+        if [[ "$cmd" == "pacman-contrib" ]]; then
+            # Check specifically for pacman-contrib package
+            if ! pacman -Q "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
+        else
+            # General command-based dependency check
+            if ! command -v "$cmd" &> /dev/null; then
+                missing_deps+=("$cmd")
+            fi
         fi
     done
 
