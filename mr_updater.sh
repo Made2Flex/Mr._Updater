@@ -425,7 +425,6 @@ check_dependencies() {
                             fi
                             break
                         fi
-                    done
 
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
@@ -444,24 +443,33 @@ check_dependencies() {
                             rm -rfv yay
                         fi
 
-                        # Prompt to remove git
-                        read -rp "Do you want to remove previously installed git? (Yes/No): " git_remove
-                        git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
-                        if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
-                            sudo pacman -Rns --noconfirm git
+                            # Prompt to remove git
+                            read -rp "Do you want to remove previously installed git? (Yes/No): " git_remove
+                            git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
+                            if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
+                                sudo pacman -Rns --noconfirm git
+                            else
+                                echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
+                            fi
                         else
-                            echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
+                            echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
+                            sudo pacman -S --noconfirm --needed "$dep"
+                            if command -v "$dep" &>/dev/null; then
+                                echo -e "${GREEN}  >> ✓Successfully installed $dep${NC}"
+                            else
+                                echo -e "${RED}!! Failed to install $dep.${NC}"
+                            fi
                         fi
-                    fi
+                    done
                     ;;
                 "debian"|"ubuntu"|"linuxmint")
                     # Check if apt is available
-                        if command -v apt &> /dev/null; then
-                            for dep in "${missing_deps[@]}"; do
-                                echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
-                                sudo apt install -y "$dep"
-                            done
-                        fi
+                    if command -v apt &> /dev/null; then
+                        for dep in "${missing_deps[@]}"; do
+                            echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
+                            sudo apt install -y "$dep"
+                        done
+                    fi
                     ;;
                 *)
                     echo -e "${RED}!! Unsupported distribution for dependency installation.${NC}"
