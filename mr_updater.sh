@@ -62,7 +62,7 @@ dynamic_color_line() {
 # Function to check if pacman db is locked
 check_db_lock() {
     if [[ -f /var/lib/pacman/db.lck ]]; then
-        echo -e "${RED}!!! Pacman database is locked.${NC}"
+        echo -e "${RED}  >> Pacman database is locked.${NC}"
         return 1 # Return failure instead of exiting
     fi
     return 0 # Return success if no lock is found
@@ -79,12 +79,17 @@ check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (databases|lock|locked) ]]; then
+    if [[ "$error_message" =~ (lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
-            remove_db_lock
-            update_system
+            remove_db_lock   
+            # Retry the pacman update after removing the lock
+            echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
+            if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
+                echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
+                return 1  # If the command fails, exit the function
+            fi
         else
             echo -e "${GREEN}>> Pacman db lock not found.${NC}"
         fi
@@ -111,7 +116,7 @@ check_pacman_db_error() {
                 
                 # Check if git is installed
                 if ! command -v git &> /dev/null; then
-                    echo -e "${ORANGE}==>> Git is not installed. Attempting to install...${NC}"
+                    echo -e "${ORANGE}==>> Git was not found, but is needed. Attempting to install...${NC}"
                     sudo pacman -S --noconfirm git
                 fi
                 
@@ -156,21 +161,21 @@ check_pacman_db_error() {
 run_command() {
     local command="$1"
     local output
-    
+
     # Capture both stdout and stderr
-    output=$(eval "$command" 2>&1)
-    local exit_code=$?
-    
+    output=$(eval "$command" 2>&1 | tee /dev/tty)
+    local exit_code=${PIPESTATUS[0]}
+
     if [[ $exit_code -ne 0 ]]; then
         echo -e "${RED}Command failed with exit code $exit_code:${NC}"
         echo "$output"
-        
+
         # Pass the error output to check_pacman_db_error
         check_pacman_db_error "$output"
-        
+
         return 1
     fi
-    
+
     return 0
 }
 
@@ -354,13 +359,13 @@ check_dependencies() {
     # Define dependencies based on distribution
     case "$DISTRO_ID" in
         "arch")
-            deps=("sudo" "pacman" "yay")
+            deps=("sudo" "pacman" "yay" "pacman-contrib")
             ;;
         "manjaro")
-            deps=("sudo" "pacman" "pacman-mirrors")
+            deps=("sudo" "pacman" "pacman-mirrors" "yay" "pacman-contrib")
             ;;
         "endeavouros")
-            deps=("sudo" "pacman" "eos-rankmirrors" "reflector")
+            deps=("sudo" "pacman" "eos-rankmirrors" "reflector" "yay" "pacman-contrib")
             ;;
         "debian"|"ubuntu"|"linuxmint")
             deps=("sudo" "apt" "nala")
@@ -371,10 +376,16 @@ check_dependencies() {
             ;;
     esac
 
-    # Check for missing dependencies
+   # Check for missing dependencies
     for cmd in "${deps[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd")
+        if [[ "$cmd" == "pacman-contrib" ]]; then
+            if ! pacman -Q "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
+        else
+            if ! command -v "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
         fi
     done
 
@@ -399,6 +410,22 @@ check_dependencies() {
                         echo -e "${LIGHT_BLUE}  >> Installing sudo...${NC}"
                         su -c "pacman -S --noconfirm sudo"
                     fi
+
+                    for dep in "${missing_deps[@]}"; do
+                        if [[ "$dep" == "pacman-contrib" ]]; then
+                            echo -e "${LIGHT_BLUE}  >> Installing pacman-contrib...${NC}"
+                            sudo pacman -S --noconfirm --needed pacman-contrib
+                            if pacman -Q pacman-contrib &>/dev/null; then
+                                echo -e "${GREEN}  >> ✓Successfully installed pacman-contrib${NC}"
+                            else
+                                echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
+                                echo -e "${YELLOW}  >> Output:${NC}"
+                                echo "$install_output"
+                                echo -e "${YELLOW}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                            fi
+                            break
+                        fi
+                    done
 
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
@@ -448,7 +475,7 @@ check_dependencies() {
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
             dynamic_color_line "Try to install them manually, then run the script again."
             sleep 1
-            echo -e "${ORANGE} ==>> Now exiting."
+            echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
         fi
     fi
@@ -494,10 +521,11 @@ create_pkg_list() {
 
     # Check if backup directory is writable
     if [ ! -w "$backup_dir" ]; then
-        echo -e "${RED}!!! Backup directory is not writable: $backup_dir${NC}"
-        mkdir -p "$backup_dir" 2>/dev/null
+        echo -e "${RED}!!! Backup directory does not exit: $backup_dir${NC}"
+        echo -e "${ORANGE}==>> Creating one now...${NC}"
+        mkdir -pv "$backup_dir" 2>/dev/null
         if [ $? -ne 0 ]; then
-            echo -e "${RED}!! Cannot create backup directory. Check permissions.${NC}"
+            echo -e "${RED}!! Cannot create backup directory. Check permissions and or create one manually.${NC}"
             return 1
         fi
     fi
@@ -732,7 +760,17 @@ update_system() {
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
-            sudo pacman -Syyuu --noconfirm --needed --color=auto
+            # Use run_command to execute the pacman update
+            # Run checkupdates and capture its output
+        output=$(checkupdates -c 2>/dev/null)
+
+        # Check if updates are available based on output
+        if [[ -n "$output" ]]; then
+            echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
+            run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
+        else
+            echo -e "${ORANGE}==>> Pacman packages are up-to-date. No updates required.${NC}"
+        fi
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
@@ -745,7 +783,7 @@ update_system() {
                     else
                         # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
-                        
+
                         if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
                             echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
                             for dir in "${yay_cache_dirs[@]}"; do
@@ -778,7 +816,7 @@ update_system() {
             stop_spinner
 
             # Check command result
-            if [ $exit_status -eq 0 ] && echo "$update_output" | grep -q 'packages can be upgraded'; then
+            if [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -q 'packages can be upgraded'; then
                 echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
                 echo -e "${ORANGE}==>> Now Witness MEOW POWA!!!!!${NC}"
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
@@ -804,7 +842,7 @@ prompt_update() {
     while true; do
         # Use localized prompt
         get_system_language
-        read -rp "$(echo -e "${MAGENTA}$UPDATE_PROMPT")" answer
+        read -rp "$(echo -e "${MAGENTA}$UPDATE_PROMPT${NC}")" answer
         answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
 
         if [[ -z "$answer" || "$answer" == "yes" || "$answer" == "y" ]]; then
