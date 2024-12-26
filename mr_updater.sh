@@ -453,7 +453,7 @@ check_dependencies() {
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
             dynamic_color_line "Try to install them manually, then run the script again."
             sleep 1
-            echo -e "${ORANGE} ==>> Now exiting."
+            echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
         fi
     fi
