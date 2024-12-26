@@ -339,10 +339,12 @@ detect_distribution() {
 # Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
+    dynamic_color_line "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
     echo -e "  1. Download the dep_package from the internet"
-    echo -e "  2. Use: sudo dpkg -i dep_package.deb"
-    dynamic_color_line "Manual intervention required to install deps."
+    echo -e "   . Use: sudo dpkg -i dep_package.deb for debian based systems"
+    echo -e "Or"
+    echo -e "   . Use: sudo pacman -U dep_package.pkg.tar.zst for Arch based systems"
     sleep 1
     echo -e "${ORANGE} ==>> Now exiting...${NC}"
     exit 1
