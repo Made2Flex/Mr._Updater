@@ -447,7 +447,7 @@ check_dependencies() {
                             read -rp "Do you want to remove previously installed git? (Yes/No): " git_remove
                             git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
                             if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
-                                sudo pacman -Rns --noconfirm git
+                                sudo pacman -Rnsu --noconfirm git
                             else
                                 echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
                             fi
