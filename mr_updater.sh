@@ -359,13 +359,13 @@ check_dependencies() {
     # Define dependencies based on distribution
     case "$DISTRO_ID" in
         "arch")
-            deps=("sudo" "pacman" "yay")
+            deps=("sudo" "pacman" "yay" "pacman-contrib")
             ;;
         "manjaro")
-            deps=("sudo" "pacman" "pacman-mirrors")
+            deps=("sudo" "pacman" "pacman-mirrors" "yay" "pacman-contrib")
             ;;
         "endeavouros")
-            deps=("sudo" "pacman" "eos-rankmirrors" "reflector")
+            deps=("sudo" "pacman" "eos-rankmirrors" "reflector" "yay" "pacman-contrib")
             ;;
         "debian"|"ubuntu"|"linuxmint")
             deps=("sudo" "apt" "nala")
@@ -499,10 +499,11 @@ create_pkg_list() {
 
     # Check if backup directory is writable
     if [ ! -w "$backup_dir" ]; then
-        echo -e "${RED}!!! Backup directory is not writable: $backup_dir${NC}"
-        mkdir -p "$backup_dir" 2>/dev/null
+        echo -e "${RED}!!! Backup directory does not exit: $backup_dir${NC}"
+        echo -e "${ORANGE}==>> Creating one now...${NC}"
+        mkdir -pv "$backup_dir" 2>/dev/null
         if [ $? -ne 0 ]; then
-            echo -e "${RED}!! Cannot create backup directory. Check permissions.${NC}"
+            echo -e "${RED}!! Cannot create backup directory. Check permissions and or create one manually.${NC}"
             return 1
         fi
     fi
@@ -735,18 +736,19 @@ stop_spinner() {
 # Function to update the system
 update_system() {
     case "$DISTRO_ID" in
-        "arch"|"endeavouros")
-            # Run checkupdates and capture its output
-            # Use run_command to execute pacman update
+        "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
-            output=$(checkupdates 2>/dev/null)
+            # Use run_command to execute the pacman update
+            # Run checkupdates and capture its output
+        output=$(checkupdates -c 2>/dev/null)
 
-            if [[ -n "$output" ]]; then
-                echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
-                run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
-            else
-                echo -e "${ORANGE}  >> Pacman packages are up-to-date. No updates required.${NC}"
-            fi
+        # Check if updates are available based on output
+        if [[ -n "$output" ]]; then
+            echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
+            run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
+        else
+            echo -e "${ORANGE}==>> Pacman packages are up-to-date. No updates required.${NC}"
+        fi
 
             # Use the global AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
@@ -759,6 +761,7 @@ update_system() {
                     else
                         # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
+
                         if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
                             echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
                             for dir in "${yay_cache_dirs[@]}"; do
@@ -774,55 +777,6 @@ update_system() {
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
             fi
-            ;;
-        manjaro)
-            # Run pamac checkupdates and capture its output
-            # Use run_command to execute pacman update
-            echo -e "${ORANGE}==>> Checking for updates...${NC}"
-            if command -v pamac >/dev/null 2>&1; then
-                outputm=$(pamac checkupdates 2>/dev/null)
-
-                # Check if the output contains the phrase "Your system is up to date."
-                if echo "$outputm" | grep -q "Your system is up to date."; then
-                    echo -e "${GREEN}  >> Your system is up-to-date. No updates required.${NC}"
-                else
-                    echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
-                    run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
-                fi
-
-                # Use the global AUR_PACKAGES variable to determine AUR updates
-                if [ -n "$AUR_PACKAGES" ]; then
-                    echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
-                    # Check yay cache exists
-                    if [ -d "$HOME/.cache/yay" ]; then
-                        # Check if yay cache is empty
-                        if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
-                            echo -e "${GREEN}  >> yay cache is clean${NC}"
-                        else
-                            # Collect directories to be cleaned
-                            mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
-                            if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
-                                echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
-                                for dir in "${yay_cache_dirs[@]}"; do
-                                    # Use basename for each directory
-                                    printf "${WHITE}  - %s\n${NC}" "$(basename "$dir")"
-                                    # Remove the directories
-                                    rm -rf "$dir"
-                                done
-                            fi
-                        fi
-                    else
-                        echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
-                    fi
-                    echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                    yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
-                fi
-            else
-                echo "Error: pamac was not found. Please install pamac."
-            fi
-            ;;
-        *)
-            echo -e "${RED}Unsupported distribution: $DISTRO_ID${NC}"
             ;;
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking for package updates.${NC}"
