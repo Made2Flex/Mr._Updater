@@ -376,10 +376,16 @@ check_dependencies() {
             ;;
     esac
 
-    # Check for missing dependencies
+   # Check for missing dependencies
     for cmd in "${deps[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd")
+        if [[ "$cmd" == "pacman-contrib" ]]; then
+            if ! pacman -Q "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
+        else
+            if ! command -v "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
         fi
     done
 
