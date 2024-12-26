@@ -413,6 +413,22 @@ check_dependencies() {
                         su -c "pacman -S --noconfirm sudo"
                     fi
 
+                    for dep in "${missing_deps[@]}"; do
+                    if [[ "$dep" == "pacman-contrib" ]]; then
+                        echo -e "${LIGHT_BLUE}  >> Installing pacman-contrib...${NC}"
+                        sudo pacman -S --noconfirm --needed pacman-contrib
+                        if pacman -Q pacman-contrib &>/dev/null; then
+                            echo -e "${GREEN}  >> ✓Successfully installed pacman-contrib${NC}"
+                        else
+                            echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
+                            echo -e "${YELLOW}  >> Output:${NC}"
+                            echo "$install_output"
+                            echo -e "${YELLOW}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                        fi
+                        break
+                    fi
+                done
+
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
                         if sudo pacman -S --noconfirm yay 2>/dev/null; then
