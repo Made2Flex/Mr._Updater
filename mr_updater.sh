@@ -378,16 +378,8 @@ check_dependencies() {
 
     # Check for missing dependencies
     for cmd in "${deps[@]}"; do
-        if [[ "$cmd" == "pacman-contrib" ]]; then
-            # Check specifically for pacman-contrib package
-            if ! pacman -Q "$cmd" &>/dev/null; then
-                missing_deps+=("$cmd")
-            fi
-        else
-            # General command-based dependency check
-            if ! command -v "$cmd" &> /dev/null; then
-                missing_deps+=("$cmd")
-            fi
+        if ! command -v "$cmd" &> /dev/null; then
+            missing_deps+=("$cmd")
         fi
     done
 
@@ -414,20 +406,20 @@ check_dependencies() {
                     fi
 
                     for dep in "${missing_deps[@]}"; do
-                    if [[ "$dep" == "pacman-contrib" ]]; then
-                        echo -e "${LIGHT_BLUE}  >> Installing pacman-contrib...${NC}"
-                        sudo pacman -S --noconfirm --needed pacman-contrib
-                        if pacman -Q pacman-contrib &>/dev/null; then
-                            echo -e "${GREEN}  >> ✓Successfully installed pacman-contrib${NC}"
-                        else
-                            echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
-                            echo -e "${YELLOW}  >> Output:${NC}"
-                            echo "$install_output"
-                            echo -e "${YELLOW}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                        if [[ "$dep" == "pacman-contrib" ]]; then
+                            echo -e "${LIGHT_BLUE}  >> Installing pacman-contrib...${NC}"
+                            sudo pacman -S --noconfirm --needed pacman-contrib
+                            if pacman -Q pacman-contrib &>/dev/null; then
+                                echo -e "${GREEN}  >> ✓Successfully installed pacman-contrib${NC}"
+                            else
+                                echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
+                                echo -e "${YELLOW}  >> Output:${NC}"
+                                echo "$install_output"
+                                echo -e "${YELLOW}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                            fi
+                            break
                         fi
-                        break
-                    fi
-                done
+                    done
 
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
