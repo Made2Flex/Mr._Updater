@@ -776,8 +776,8 @@ update_system() {
 
         # Check if updates are available based on output
         if [[ -n "$output" ]]; then
-            echo -e "${ORANGE}  >> Updates found. Proceeding with system update...${NC}"
-            run_command "sudo pacman -Syyuu --noconfirm --needed --color=auto"
+            echo -e "${ORANGE}  >>${NC} "${GREEN}Updates found!${NC}" "${ORANGE}Proceeding with system update...${NC}""
+            run_command "sudo pacman -Syyuu --noconfirm --needed"
         else
             echo -e "${ORANGE}==>> Pacman packages are up-to-date.${NC}"
         fi
