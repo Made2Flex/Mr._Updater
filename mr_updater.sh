@@ -639,6 +639,17 @@ check_mirror_source_refreshed() {
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
+                    # Keep only the 3 most recent backups
+                    local backup_dir="/etc/pacman.d/"
+                    local backup_pattern="mirrorlist.backup.*"
+                    local backups=($(ls -t "$backup_dir$backup_pattern" 2>/dev/null))
+                    if (( ${#backups[@]} > 3 )); then
+                        for file in "${backups[@]:3}"; do
+                            echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
+                            sudo rm -fv "$file"
+                        done
+                    fi
+
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
                     # Handle multiple mirror refresh commands for EndeavourOS
