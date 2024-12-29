@@ -640,13 +640,20 @@ check_mirror_source_refreshed() {
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
                     # Keep only the 3 most recent backups
-                    local backup_dir="/etc/pacman.d/"
+                    local backup_dir="/etc/pacman.d"
                     local backup_pattern="mirrorlist.backup.*"
-                    local backups=($(ls -t "$backup_dir$backup_pattern" 2>/dev/null))
+
+                    # Ensure proper path concatenation
+                    local backups=($(ls -t "${backup_dir}/${backup_pattern}" 2>/dev/null))
+
                     if (( ${#backups[@]} > 3 )); then
                         for file in "${backups[@]:3}"; do
-                            echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
-                            sudo rm -fv "$file"
+                            if [[ -f "$file" ]]; then  # Double-check it's a file before removing
+                                echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
+                                sudo rm -fv "$file"
+                            else
+                                echo -e "${RED}!! Skipping invalid file: $file${NC}"
+                            fi
                         done
                     fi
 
