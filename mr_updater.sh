@@ -639,12 +639,12 @@ check_mirror_source_refreshed() {
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
-                    # Keep only the 3 most recent backups
+                     # Keep only the 3 most recent backups
                     local backup_dir="/etc/pacman.d"
                     local backup_pattern="mirrorlist.backup.*"
 
-                    # Ensure proper path concatenation
-                    local backups=($(ls -t "${backup_dir}/${backup_pattern}" 2>/dev/null))
+                    # Collect backups with explicit globbing
+                    mapfile -t backups < <(find "$backup_dir" -type f -name "$backup_pattern" -printf "%T@ %p\n" | sort -rn | cut -d' ' -f2-)
 
                     if (( ${#backups[@]} > 3 )); then
                         for file in "${backups[@]:3}"; do
