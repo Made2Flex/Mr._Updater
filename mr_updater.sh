@@ -657,6 +657,9 @@ check_mirror_source_refreshed() {
                         done
                     fi
 
+                    cho -e "${YELLOW}==>> Current Backups:"
+                    ls "$backup_dir"/$backup_pattern
+
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
                     # Handle multiple mirror refresh commands for EndeavourOS
