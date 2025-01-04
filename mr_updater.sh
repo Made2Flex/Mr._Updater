@@ -129,7 +129,7 @@ check_pacman_db_error() {
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
                     chmod +x -v "$db_fixer_script"
                     
-                    echo -e "${GREEN}==>> ✓ Successfully downloaded Ppm_db_fixer.sh${NC}"
+                    echo -e "${GREEN}==>> ✓Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
                     echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
                     echo -e "${YELLOW}==>> Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
@@ -829,6 +829,7 @@ update_system() {
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
+                echo -e "${ORANGE}==>> System has been updated ✓successfully.${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -969,7 +970,7 @@ check_btrfs_snapshots() {
                         echo -e "${LIGHT_BLUE}==>> Running the setupsnapshots script...${NC}"
                         bash "$setup_script"
                         if [[ $? -eq 0 ]]; then
-                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓ successfully!${NC}"
+                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓successfully!${NC}"
                             BTRFS_SNAPSHOTS_SETUP=true
                         else
                             echo -e "${RED}==>> Failed to set up BTRFS snapshots.${NC}"
@@ -985,7 +986,7 @@ check_btrfs_snapshots() {
                             git_remove_choice=$(echo "$git_remove_choice" | tr '[:upper:]' '[:lower:]')
 
                             if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
-                                sudo pacman -Rns --noconfirm git
+                                sudo pacman -Rnsu --noconfirm git
                             fi    
                         fi
                     else
