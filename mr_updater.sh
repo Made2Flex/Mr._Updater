@@ -639,26 +639,23 @@ check_mirror_source_refreshed() {
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
-                     # Keep only the 3 most recent backups
+                   # Keep only the 3 most recent backups
                     local backup_dir="/etc/pacman.d"
                     local backup_pattern="mirrorlist.backup.*"
 
-                    # Collect backups with explicit globbing
-                    mapfile -t backups < <(find "$backup_dir" -type f -name "$backup_pattern" -printf "%T@ %p\n" | sort -rn | cut -d' ' -f2-)
+                    # Collect backups with explicit globbing, suppressing errors
+                    mapfile -t backups < <(find "$backup_dir" -maxdepth 1 -type f -name "$backup_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2-)
 
                     if (( ${#backups[@]} > 3 )); then
                         for file in "${backups[@]:3}"; do
                             if [[ -f "$file" ]]; then  # Double-check it's a file before removing
                                 echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
-                                sudo rm -fv "$file"
+                                sudo rm -f "$file"
                             else
                                 echo -e "${RED}!! Skipping invalid file: $file${NC}"
                             fi
                         done
                     fi
-
-                    cho -e "${YELLOW}==>> Current Backups:"
-                    ls "$backup_dir"/$backup_pattern
 
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
