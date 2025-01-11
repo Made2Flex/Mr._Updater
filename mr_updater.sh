@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -uo pipefail  # error handling
+set -uo pipefail  # Improved error handling
 # -e: exit on error
 # -u: treat unset variables as an error
 # -o pipefail: ensure pipeline errors are captured
@@ -27,7 +27,7 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
 \$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |      $$\
  \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|      \__|
           $$ |
-          $$ |
+          $$ |                                        Qnk6IE1hZGUyRmxleA==
           \__|
 EOF
 }
@@ -619,7 +619,7 @@ create_aur_pkg_list() {
 
 # Function to check if mirror sources are refreshed
 check_mirror_source_refreshed() {
-    echo -e "${ORANGE}==>> Checking mirror sources...${NC}"
+    echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
@@ -632,7 +632,7 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}  >> Mirror source $mirror_sources_file hasn't been refreshed in over a week!${NC}"
+                    echo -e "${MAGENTA}  >> Mirror list $mirror_sources_file hasn't been refreshed in over a week!${NC}"
                     echo -e "${ORANGE}  >> Backing up current mirrorlist...${NC}"
 
                     # Backup the current mirrorlist with a timestamped filename
@@ -686,10 +686,10 @@ check_mirror_source_refreshed() {
 
                     echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror source is fresh. moving on!${NC}"
+                    echo -e "${GREEN}  >> Mirror list is fresh. moving on!${NC}"
                 fi
             else
-                echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
+                echo -e "${RED}!!! Mirror-list file not found: $mirror_sources_file${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -701,18 +701,18 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}==>> Nala sources haven't been refreshed in over a week!${NC}"
-                    echo -e "${ORANGE}==>> Refreshing Nala sources...${NC}"
+                    echo -e "${MAGENTA}==>> Nala mirror-list hasn't been refreshed in over a week!${NC}"
+                    echo -e "${ORANGE}==>> Refreshing Nala mirror-list...${NC}"
 
                     # Use the MIRROR_REFRESH_CMD
                     sudo $MIRROR_REFRESH_CMD
 
-                    echo -e "${GREEN}==>> Nala sources have been refreshed.${NC}"
+                    echo -e "${GREEN}==>> Nala mirror-list has been refreshed.${NC}"
                 else
-                    echo -e "${LIGHT_BLUE}==>> Sources are fresh. Moving On!${NC}"
+                    echo -e "${LIGHT_BLUE}==>> Mirror-list is fresh. Moving On!${NC}"
                 fi
             else
-                echo -e "${RED}!!! Nala sources file not found: $nala_sources_file${NC}"
+                echo -e "${RED}!!! Nala mirror-list file not found: $nala_sources_file${NC}"
             fi
             ;;
         *)
