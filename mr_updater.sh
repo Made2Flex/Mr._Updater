@@ -611,7 +611,7 @@ create_aur_pkg_list() {
             fi
             ;;
         *)
-            echo -e "${LIGHT_BLUE}  >> Skipping AUR package list (not an Arch-based distribution)${NC}"
+            echo -e "${LIGHT_BLUE}   ~> Skipping AUR package list (not an Arch-based distribution)${NC}"
             return 0
             ;;
     esac
@@ -940,7 +940,7 @@ save_state() {
         echo -e "${RED}!! Failed to save state to $STATE_FILE.${NC}"
         exit 1
     else
-        echo -e "${BLUE}==>> State saved ✓successfully to $STATE_FILE.${NC}"
+        echo -e "${BLUE}>>>> State saved successfully to $STATE_FILE.${NC}"
     fi
 }
 
