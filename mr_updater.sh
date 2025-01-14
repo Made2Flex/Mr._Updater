@@ -603,7 +603,7 @@ create_aur_pkg_list() {
                     return 0
                 fi
             else
-                # Create timestamped log file for the error
+                # Create timestamped log file
                 local timestamped_log=$(create_timestamped_log "$log_file")
                 echo "$error_output" > "$timestamped_log"
                 echo -e "${RED}!! Error getting AUR package list. See $timestamped_log for details.${NC}"
@@ -791,6 +791,7 @@ update_system() {
             # Use run_command to execute the pacman update
             # Run checkupdates and capture its output
         output=$(checkupdates -c 2>/dev/null)
+        exit_code=$?
 
         # Check if updates are available based on output
         if [[ -n "$output" ]]; then
@@ -807,7 +808,7 @@ update_system() {
                 if [ -d "$HOME/.cache/yay" ]; then
                     # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
-                        echo -e "${GREEN}  >> yay cache is clean${NC}"
+                        echo -e "${GREEN}  >> Cache is clean${NC}"
                     else
                         # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
@@ -826,7 +827,13 @@ update_system() {
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
+            fi
+
+            # Determine if updates are available
+            if [[ -n "$output" ]]; then
                 echo -e "${ORANGE}==>> System has been updated ✓successfully.${NC}"
+            else
+                echo -e "${GREEN}==>> System is Up to Date.${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -878,7 +885,6 @@ prompt_update() {
             update_system
             break
         elif [[ "$answer" == "no" || "$answer" == "n" ]]; then
-            echo -e "${ORANGE}<< You have chosen not to upgrade.${NC}"
             echo -e "${ORANGE}<< There is nothing to do...${NC}"
             echo -e "${ORANGE}>> Meow Out!${NC}"
             break
@@ -899,24 +905,43 @@ STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 # Function to load the state from the STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
-        source "$STATE_FILE"
+        # Attempt to source the state file and handle potential errors
+        if ! source "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to load state from $STATE_FILE. Using default values.${NC}"
+            # reset flags if loading the state fails
+            BTRFS_CHECKED=false
+            BTRFS_SNAPSHOTS_SETUP=false
+        else
+            echo -e "${BLUE}>>>> State loaded from $STATE_FILE.${NC}"
+        fi
     else
         # Create the directory if it doesn't exist
-        mkdir -p "$(dirname "$STATE_FILE")"
-        
+        mkdir -p "$(dirname "$STATE_FILE")" || {
+            echo -e "${RED}!! Failed to create directory for $STATE_FILE.${NC}"
+            exit 1
+        }
+
+        # Initialize state with default values
+        echo -e "${ORANGE}==>> State file not found. Creating new state file with default values.${NC}"
         BTRFS_CHECKED=false
         BTRFS_SNAPSHOTS_SETUP=false
-        
+
         # Create the state file with default values if it doesn't exist
-        echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
-        echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
+        if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to create the state file at $STATE_FILE.${NC}"
+            exit 1
+        fi
     fi
 }
 
 # Function to save the state to the STATE_FILE
 save_state() {
-    echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
-    echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
+    if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+        echo -e "${RED}!! Failed to save state to $STATE_FILE.${NC}"
+        exit 1
+    else
+        echo -e "${BLUE}==>> State saved ✓successfully to $STATE_FILE.${NC}"
+    fi
 }
 
 # Function to check if the filesystem is BTRFS and if snapshots are set up
@@ -1000,6 +1025,7 @@ check_btrfs_snapshots() {
         return 0
     else
         echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
+        BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
     fi
 
     # Save the state to STATE_FILE
