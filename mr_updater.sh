@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -uo pipefail  # Improved error handling
+set -uo pipefail
 # -e: exit on error
 # -u: treat unset variables as an error
 # -o pipefail: ensure pipeline errors are captured
@@ -18,22 +18,22 @@ NC='\033[0m' # No color
 # ASCII Art Header
 ascii_art_header() {
     cat << 'EOF'
-$$\   $$\                 $$\             $$\                         $$\
-$$ |  $$ |                $$ |            $$ |                        $$ |
-$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\  $$ |
-$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\ $$ |
-$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|\__|
+$$\   $$\                 $$\             $$\
+$$ |  $$ |                $$ |            $$ |
+$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\
+$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\
+$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|
 $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
-\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |      $$\
- \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|      \__|
+\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |
+ \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|
           $$ |
-          $$ |
+          $$ |                                    Qnk6IE1hZGUyRmxleA==
           \__|
 EOF
 }
 
 # Utility function for dynamic color-changing a line
-dynamic_color_line() {
+dynamic_color() {
     local message="$1"
     #local colors=("red" "yellow" "green" "cyan" "magenta" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
@@ -129,7 +129,7 @@ check_pacman_db_error() {
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
                     chmod +x -v "$db_fixer_script"
                     
-                    echo -e "${GREEN}==>> ✓ Successfully downloaded Ppm_db_fixer.sh${NC}"
+                    echo -e "${GREEN}==>> ✓Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
                     echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
                     echo -e "${YELLOW}==>> Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
@@ -181,7 +181,7 @@ run_command() {
 
 # Function to check if running in a terminal and offer to open one if not
 get_script_path() {
-    # Resolve the full path of the current script
+    # Resolve the full path
     readlink -f "$0"
 }
 
@@ -232,7 +232,6 @@ show_ascii_header() {
     echo -e "${BLUE}"
     ascii_art_header
     echo -e "${NC}"
-    sleep 1
 }
 
 # Localization function
@@ -339,12 +338,12 @@ detect_distribution() {
 # Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
-    dynamic_color_line "Manual intervention required to install deps."
+    dynamic_color "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
-    echo -e "  1. Download the dep_package from the internet"
-    echo -e "   . Use: sudo dpkg -i dep_package.deb for debian based systems"
+    echo -e "  1. Download the package from the internet"
+    echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
     echo -e "Or"
-    echo -e "   . Use: sudo pacman -U dep_package.pkg.tar.zst for Arch based systems"
+    echo -e "   . Use: sudo pacman -U package.pkg.tar.zst for Arch based systems"
     sleep 1
     echo -e "${ORANGE} ==>> Now exiting...${NC}"
     exit 1
@@ -460,6 +459,7 @@ check_dependencies() {
                                 echo -e "${GREEN}  >> ✓Successfully installed $dep${NC}"
                             else
                                 echo -e "${RED}!! Failed to install $dep.${NC}"
+                                warn_manual_install
                             fi
                         fi
                     done
@@ -483,7 +483,7 @@ check_dependencies() {
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color_line "Try to install them manually, then run the script again."
+            dynamic_color "Try to install them manually, then run the script again."
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
@@ -494,7 +494,7 @@ check_dependencies() {
 # Function to create timestamped log file
 create_timestamped_log() {
     local original_log_file="$1"
-    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local timestamp=$(date +"%Y-%m-%d %I:%M:%S %p")
     local log_dir=$(dirname "$original_log_file")
     local filename=$(basename "$original_log_file")
     local timestamped_log_file="${log_dir}/${timestamp}_${filename}"
@@ -603,7 +603,7 @@ create_aur_pkg_list() {
                     return 0
                 fi
             else
-                # Create timestamped log file for the error
+                # Create timestamped log file
                 local timestamped_log=$(create_timestamped_log "$log_file")
                 echo "$error_output" > "$timestamped_log"
                 echo -e "${RED}!! Error getting AUR package list. See $timestamped_log for details.${NC}"
@@ -611,7 +611,7 @@ create_aur_pkg_list() {
             fi
             ;;
         *)
-            echo -e "${LIGHT_BLUE}  >> Skipping AUR package list (not an Arch-based distribution)${NC}"
+            echo -e "${LIGHT_BLUE}   ~> Skipping AUR package list (not an Arch-based distribution)${NC}"
             return 0
             ;;
     esac
@@ -619,7 +619,7 @@ create_aur_pkg_list() {
 
 # Function to check if mirror sources are refreshed
 check_mirror_source_refreshed() {
-    echo -e "${ORANGE}==>> Checking mirror sources...${NC}"
+    echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
@@ -632,12 +632,30 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}  >> Mirror source $mirror_sources_file hasn't been refreshed in over a week!${NC}"
+                    echo -e "${MAGENTA}  >> Mirror list $mirror_sources_file hasn't been refreshed in over a week!${NC}"
                     echo -e "${ORANGE}  >> Backing up current mirrorlist...${NC}"
 
                     # Backup the current mirrorlist with a timestamped filename
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
+
+                   # Keep only the 3 most recent backups
+                    local backup_dir="/etc/pacman.d"
+                    local backup_pattern="mirrorlist.backup.*"
+
+                    # Collect backups with explicit globbing, suppressing errors
+                    mapfile -t backups < <(find "$backup_dir" -maxdepth 1 -type f -name "$backup_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2-)
+
+                    if (( ${#backups[@]} > 3 )); then
+                        for file in "${backups[@]:3}"; do
+                            if [[ -f "$file" ]]; then  # Double-check it's a file before removing
+                                echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
+                                sudo rm -f "$file"
+                            else
+                                echo -e "${RED}!! Skipping invalid file: $file${NC}"
+                            fi
+                        done
+                    fi
 
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
@@ -647,7 +665,7 @@ check_mirror_source_refreshed() {
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN}  >> eos-rankmirrors completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
@@ -656,7 +674,7 @@ check_mirror_source_refreshed() {
                         if command -v reflector &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
-                                echo -e "${GREEN}  >> reflector completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> reflector completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! reflector failed${NC}"
                             fi
@@ -666,12 +684,12 @@ check_mirror_source_refreshed() {
                         $MIRROR_REFRESH_CMD
                     fi
 
-                    echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
+                    echo -e "${GREEN}==>> Mirrors have been refreshed.${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror source is fresh. moving on!${NC}"
+                    echo -e "${GREEN} ->> Mirror list is fresh. moving on..${NC}"
                 fi
             else
-                echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
+                echo -e "${RED}!!! Mirror-list file not found: $mirror_sources_file${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -683,18 +701,18 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}==>> Nala sources haven't been refreshed in over a week!${NC}"
-                    echo -e "${ORANGE}==>> Refreshing Nala sources...${NC}"
+                    echo -e "${MAGENTA}==>> Nala mirror-list hasn't been refreshed in over a week!${NC}"
+                    echo -e "${ORANGE}==>> Refreshing Nala mirror-list...${NC}"
 
                     # Use the MIRROR_REFRESH_CMD
                     sudo $MIRROR_REFRESH_CMD
 
-                    echo -e "${GREEN}==>> Nala sources have been refreshed.${NC}"
+                    echo -e "${GREEN}==>> Nala mirror-list has been refreshed.${NC}"
                 else
-                    echo -e "${LIGHT_BLUE}==>> Sources are fresh. Moving On!${NC}"
+                    echo -e "${LIGHT_BLUE}==>> Mirror-list is fresh. Moving On!${NC}"
                 fi
             else
-                echo -e "${RED}!!! Nala sources file not found: $nala_sources_file${NC}"
+                echo -e "${RED}!!! Nala mirror-list file not found: $nala_sources_file${NC}"
             fi
             ;;
         *)
@@ -773,6 +791,7 @@ update_system() {
             # Use run_command to execute the pacman update
             # Run checkupdates and capture its output
         output=$(checkupdates -c 2>/dev/null)
+        exit_code=$?
 
         # Check if updates are available based on output
         if [[ -n "$output" ]]; then
@@ -789,7 +808,7 @@ update_system() {
                 if [ -d "$HOME/.cache/yay" ]; then
                     # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
-                        echo -e "${GREEN}  >> yay cache is clean${NC}"
+                        echo -e "${GREEN}  >> Cache is clean${NC}"
                     else
                         # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
@@ -808,6 +827,13 @@ update_system() {
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
+            fi
+
+            # Determine if updates are available
+            if [[ -n "$output" ]]; then
+                echo -e "${ORANGE}==>> System has been updated ✓successfully.${NC}"
+            else
+                echo -e "${GREEN}==>> System is Up to Date.${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -859,7 +885,6 @@ prompt_update() {
             update_system
             break
         elif [[ "$answer" == "no" || "$answer" == "n" ]]; then
-            echo -e "${ORANGE}<< You have chosen not to upgrade.${NC}"
             echo -e "${ORANGE}<< There is nothing to do...${NC}"
             echo -e "${ORANGE}>> Meow Out!${NC}"
             break
@@ -880,24 +905,43 @@ STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 # Function to load the state from the STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
-        source "$STATE_FILE"
+        # Attempt to source the state file and handle potential errors
+        if ! source "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to load state from $STATE_FILE. Using default values.${NC}"
+            # reset flags if loading the state fails
+            BTRFS_CHECKED=false
+            BTRFS_SNAPSHOTS_SETUP=false
+        else
+            echo -e "${BLUE}>>>> State loaded from $STATE_FILE.${NC}"
+        fi
     else
         # Create the directory if it doesn't exist
-        mkdir -p "$(dirname "$STATE_FILE")"
-        
+        mkdir -p "$(dirname "$STATE_FILE")" || {
+            echo -e "${RED}!! Failed to create directory for $STATE_FILE.${NC}"
+            exit 1
+        }
+
+        # Initialize state with default values
+        echo -e "${ORANGE}==>> State file not found. Creating new state file with default values.${NC}"
         BTRFS_CHECKED=false
         BTRFS_SNAPSHOTS_SETUP=false
-        
+
         # Create the state file with default values if it doesn't exist
-        echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
-        echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
+        if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to create the state file at $STATE_FILE.${NC}"
+            exit 1
+        fi
     fi
 }
 
 # Function to save the state to the STATE_FILE
 save_state() {
-    echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE"
-    echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"
+    if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+        echo -e "${RED}!! Failed to save state to $STATE_FILE.${NC}"
+        exit 1
+    else
+        echo -e "${BLUE}>>>> State saved successfully to $STATE_FILE.${NC}"
+    fi
 }
 
 # Function to check if the filesystem is BTRFS and if snapshots are set up
@@ -948,7 +992,7 @@ check_btrfs_snapshots() {
                         echo -e "${LIGHT_BLUE}==>> Running the setupsnapshots script...${NC}"
                         bash "$setup_script"
                         if [[ $? -eq 0 ]]; then
-                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓ successfully!${NC}"
+                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓successfully!${NC}"
                             BTRFS_SNAPSHOTS_SETUP=true
                         else
                             echo -e "${RED}==>> Failed to set up BTRFS snapshots.${NC}"
@@ -964,7 +1008,7 @@ check_btrfs_snapshots() {
                             git_remove_choice=$(echo "$git_remove_choice" | tr '[:upper:]' '[:lower:]')
 
                             if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
-                                sudo pacman -Rns --noconfirm git
+                                sudo pacman -Rnsu --noconfirm git
                             fi    
                         fi
                     else
@@ -981,6 +1025,7 @@ check_btrfs_snapshots() {
         return 0
     else
         echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
+        BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
     fi
 
     # Save the state to STATE_FILE
