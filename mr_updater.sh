@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -uo pipefail  # Improved error handling
+set -uo pipefail
 # -e: exit on error
 # -u: treat unset variables as an error
 # -o pipefail: ensure pipeline errors are captured
@@ -18,22 +18,22 @@ NC='\033[0m' # No color
 # ASCII Art Header
 ascii_art_header() {
     cat << 'EOF'
-$$\   $$\                 $$\             $$\                         $$\
-$$ |  $$ |                $$ |            $$ |                        $$ |
-$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\  $$ |
-$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\ $$ |
-$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|\__|
+$$\   $$\                 $$\             $$\
+$$ |  $$ |                $$ |            $$ |
+$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\
+$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\
+$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|
 $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
-\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |      $$\
- \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|      \__|
+\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |
+ \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|
           $$ |
-          $$ |                                        Qnk6IE1hZGUyRmxleA==
+          $$ |                                    Qnk6IE1hZGUyRmxleA==
           \__|
 EOF
 }
 
 # Utility function for dynamic color-changing a line
-dynamic_color_line() {
+dynamic_color() {
     local message="$1"
     #local colors=("red" "yellow" "green" "cyan" "magenta" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
@@ -181,7 +181,7 @@ run_command() {
 
 # Function to check if running in a terminal and offer to open one if not
 get_script_path() {
-    # Resolve the full path of the current script
+    # Resolve the full path
     readlink -f "$0"
 }
 
@@ -232,7 +232,6 @@ show_ascii_header() {
     echo -e "${BLUE}"
     ascii_art_header
     echo -e "${NC}"
-    sleep 1
 }
 
 # Localization function
@@ -339,12 +338,12 @@ detect_distribution() {
 # Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
-    dynamic_color_line "Manual intervention required to install deps."
+    dynamic_color "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
-    echo -e "  1. Download the dep_package from the internet"
-    echo -e "   . Use: sudo dpkg -i dep_package.deb for debian based systems"
+    echo -e "  1. Download the package from the internet"
+    echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
     echo -e "Or"
-    echo -e "   . Use: sudo pacman -U dep_package.pkg.tar.zst for Arch based systems"
+    echo -e "   . Use: sudo pacman -U package.pkg.tar.zst for Arch based systems"
     sleep 1
     echo -e "${ORANGE} ==>> Now exiting...${NC}"
     exit 1
@@ -460,6 +459,7 @@ check_dependencies() {
                                 echo -e "${GREEN}  >> ✓Successfully installed $dep${NC}"
                             else
                                 echo -e "${RED}!! Failed to install $dep.${NC}"
+                                warn_manual_install
                             fi
                         fi
                     done
@@ -483,7 +483,7 @@ check_dependencies() {
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color_line "Try to install them manually, then run the script again."
+            dynamic_color "Try to install them manually, then run the script again."
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
@@ -494,7 +494,7 @@ check_dependencies() {
 # Function to create timestamped log file
 create_timestamped_log() {
     local original_log_file="$1"
-    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local timestamp=$(date +"%Y-%m-%d %I:%M:%S %p")
     local log_dir=$(dirname "$original_log_file")
     local filename=$(basename "$original_log_file")
     local timestamped_log_file="${log_dir}/${timestamp}_${filename}"
@@ -665,7 +665,7 @@ check_mirror_source_refreshed() {
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN}  >> eos-rankmirrors completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
@@ -674,7 +674,7 @@ check_mirror_source_refreshed() {
                         if command -v reflector &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
-                                echo -e "${GREEN}  >> reflector completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> reflector completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! reflector failed${NC}"
                             fi
@@ -684,9 +684,9 @@ check_mirror_source_refreshed() {
                         $MIRROR_REFRESH_CMD
                     fi
 
-                    echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
+                    echo -e "${GREEN}==>> Mirrors have been refreshed.${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror list is fresh. moving on!${NC}"
+                    echo -e "${GREEN} ->> Mirror list is fresh. moving on..${NC}"
                 fi
             else
                 echo -e "${RED}!!! Mirror-list file not found: $mirror_sources_file${NC}"
