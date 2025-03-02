@@ -1175,7 +1175,7 @@ main() {
     check_mirror_source_refreshed
     check_btrfs_snapshots
     prompt_update
-    trap 'clean_sudo' EXIT
+    trap 'clean_sudo' EXIT INT TERM
 }
 
 # BoomShackalaka!!
