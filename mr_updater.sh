@@ -43,7 +43,6 @@ parser() {
                 ;;
             *)
                 echo -e "${RED}Error: This script does not accept arguments${NC}"
-                echo -e "${YELLOW}It is called automatically by stash_n_pull.sh${NC}"
                 show_help
                 exit 1
                 ;;
