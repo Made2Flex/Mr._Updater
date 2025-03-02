@@ -15,8 +15,8 @@ show_help() {
     echo -e "${MAGENTA}This script is a system updater for Linux systems.${NC}"
     echo
     echo -e "${LIGHT_BLUE}Options:${NC}"
-    echo "  -h, --help     Display this help message and exit"
-    echo "  -v, --version  Show version information and exit"
+    echo "  -h, --help     Display this help message."
+    echo "  -v, --version  Show version information."
     echo
     echo -e "${LIGHT_BLUE}This script will:${NC}"
     echo -e "${GREEN}. Perform system updates${NC}"
@@ -478,7 +478,7 @@ warn_manual_install() {
     echo -e "   . Download the package from the internet"
     echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
     echo -e "   . Use: sudo pacman -U package.pkg.tar.zst for Arch based systems"
-    echo -e "   . Note: You may retry your distro's package manager"
+    echo -e "   . Note: You may retry your distro's package manager manually"
     echo -e "${ORANGE} ==>> Now exiting...${NC}"
     exit 1
 }
@@ -751,7 +751,7 @@ create_aur_pkg_list() {
 }
 
 # Function to check if mirror sources are refreshed
-check_mirror_source_refreshed() {
+check_mirrors() {
     echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
     case "$DISTRO_ID" in
@@ -1171,7 +1171,7 @@ main() {
     check_dependencies
     create_pkg_list
     create_aur_pkg_list
-    check_mirror_source_refreshed
+    check_mirrors
     check_btrfs_snapshots
     prompt_update
     trap 'clean_sudo' EXIT INT TERM
