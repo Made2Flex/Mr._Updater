@@ -2,7 +2,7 @@
 
 ## Overview
 
-A powerful, multi-distribution system update script that supports various Linux distributions with a delightful, user-friendly interface. This script automates system updates, package list creation, and mirror source refreshing for Arch-based and Debian-based Linux distributions.
+A powerful, multi-distribution system update script that supports various Linux distributions. This script automates system updates, package list creation, and mirror source refreshing for Arch-based and Debian-based Linux distributions.
 
 ## 🌟 Features
 
@@ -14,7 +14,7 @@ A powerful, multi-distribution system update script that supports various Linux 
   - Ubuntu
   - Linux Mint
 
-- 🌈 Multilingual Support
+  - Multilingual Support
   - Automatic language detection
   - Greetings in multiple languages (English, Spanish, French, German, Japanese)
 
@@ -46,20 +46,10 @@ chmod +x update_multi-distro0.sh
 ## 💻 Usage
 ./mr_updater.sh
 
-### Script Workflow
-1. Checks terminal environment
-2. Displays ASCII art header
-3. Greets user in their system language
-4. Checks and installs missing dependencies
-5. Creates package lists
-6. Refreshes mirror sources
-7. Prompts for system update
-
 ## 🛠️ Customization
 
 - Modify color schemes in the script
 - Add support for more distributions
-- Customize dependency lists
 
 ## 🐛 Troubleshooting
 
