@@ -1,5 +1,56 @@
 #!/usr/bin/env bash
 
+SCRIPT_VERSION="1.1.5"
+SCRIPT_NAME=$(basename "$0")
+
+show_version() {
+    echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
+    exit 0
+}
+
+# Function to display help information
+show_help() {
+    echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
+    echo
+    echo -e "${MAGENTA}This script is a system updater for Linux systems.${NC}"
+    echo
+    echo -e "${LIGHT_BLUE}Options:${NC}"
+    echo "  -h, --help     Display this help message and exit"
+    echo "  -v, --version  Show version information and exit"
+    echo
+    echo -e "${LIGHT_BLUE}This script will:${NC}"
+    echo -e "${GREEN}. Perform system updates${NC}"
+    echo -e "${GREEN}. Handle BTRFS snapshot setup and management${NC}"
+    echo -e "${GREEN}. Manage package dependencies and installations${NC}"
+    echo -e "${GREEN}. Create system backup and package lists${NC}"
+    echo
+    echo -e "${BLUE}. Supports multiple Linux distributions (Arch based and Debian based.)${NC}"
+    echo
+    echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
+    echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
+    exit 0
+}
+
+# Function to parse -v and -h
+parser() {
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            -h|--help)
+                show_help
+                ;;
+            -v|--version)
+                show_version
+                ;;
+            *)
+                echo -e "${RED}Error: This script does not accept arguments${NC}"
+                echo -e "${YELLOW}It is called automatically by stash_n_pull.sh${NC}"
+                show_help
+                exit 1
+                ;;
+        esac
+    fi
+}
+
 set -uo pipefail
 # -e: exit on error
 # -u: treat unset variables as an error
@@ -312,7 +363,7 @@ check_terminal() {
 }
 
 # Function to show ascii header
-show_ascii_header() {
+show_header() {
     echo -e "${BLUE}"
     ascii_header
     dynamic_me "Qnk6IE1hZGUyRmxleA=="
@@ -1110,9 +1161,10 @@ check_btrfs_snapshots() {
 
 # Alchemist den
 main() {
+    parser "$@"
     get_system_language  # call it early to set up translations
     check_terminal
-    show_ascii_header
+    show_header
     greet_user
     cache_sudo_password
     keep_sudo_alive &  # Start the sudo keeper in the background
@@ -1127,4 +1179,4 @@ main() {
 }
 
 # BoomShackalaka!!
-main
+main "$@"
