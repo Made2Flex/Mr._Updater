@@ -1,6 +1,56 @@
 #!/usr/bin/env bash
 
-set -uo pipefail  # Improved error handling
+SCRIPT_VERSION="1.1.5"
+SCRIPT_NAME=$(basename "$0")
+
+show_version() {
+    echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
+    exit 0
+}
+
+# Function to display help information
+show_help() {
+    echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
+    echo
+    echo -e "${MAGENTA}This script is a system updater for Linux systems.${NC}"
+    echo
+    echo -e "${LIGHT_BLUE}Options:${NC}"
+    echo "  -h, --help     Display this help message and exit"
+    echo "  -v, --version  Show version information and exit"
+    echo
+    echo -e "${LIGHT_BLUE}This script will:${NC}"
+    echo -e "${GREEN}. Perform system updates${NC}"
+    echo -e "${GREEN}. Handle BTRFS snapshot setup and management${NC}"
+    echo -e "${GREEN}. Manage package dependencies and installations${NC}"
+    echo -e "${GREEN}. Create system backup and package lists${NC}"
+    echo
+    echo -e "${BLUE}. Supports multiple Linux distributions (Arch based and Debian based.)${NC}"
+    echo
+    echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
+    echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
+    exit 0
+}
+
+# Function to parse -v and -h
+parser() {
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            -h|--help)
+                show_help
+                ;;
+            -v|--version)
+                show_version
+                ;;
+            *)
+                echo -e "${RED}Error: This script does not accept arguments${NC}"
+                show_help
+                exit 1
+                ;;
+        esac
+    fi
+}
+
+set -uo pipefail
 # -e: exit on error
 # -u: treat unset variables as an error
 # -o pipefail: ensure pipeline errors are captured
@@ -16,24 +66,102 @@ WHITE='\033[0;37m'
 NC='\033[0m' # No color
 
 # ASCII Art Header
-ascii_art_header() {
+ascii_header() {
     cat << 'EOF'
-$$\   $$\                 $$\             $$\                         $$\
-$$ |  $$ |                $$ |            $$ |                        $$ |
-$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\  $$ |
-$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\ $$ |
-$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|\__|
+$$\   $$\                 $$\             $$\
+$$ |  $$ |                $$ |            $$ |
+$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\
+$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\
+$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|
 $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
-\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |      $$\
- \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|      \__|
+\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |
+ \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|
           $$ |
           $$ |
           \__|
 EOF
 }
 
-# Utility function for dynamic color-changing a line
-dynamic_color_line() {
+# Function to cache the sudo password for the current session
+cache_sudo_password() {
+    local attempts=0
+    local max_attempts=3
+
+    while [[ $attempts -lt $max_attempts ]]; do
+        echo -ne "${LIGHT_BLUE}Please, enter your sudo password: ${NC}"
+        if ! read -s -t 60 SUDO_PASSWORD; then
+            echo -e "\n${RED}Error: Password input timed out after 60 seconds.${NC}"
+            exit 1
+        fi
+        echo
+
+        # Verify the password is correct
+        if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
+            export SUDO_PASSWORD
+            return 0
+        else
+            attempts=$((attempts + 1))
+            if [[ $attempts -lt $max_attempts ]]; then
+                echo -e "${RED}Incorrect password. Please try again.${NC}"
+            fi
+        fi
+    done
+
+    echo -e "${RED}Maximum password attempts reached. Exiting.${NC}"
+    exit 1
+}
+
+# Function to use the cached sudo password
+sudo_cached() {
+    if [[ -z "$SUDO_PASSWORD" ]]; then
+        echo "[ERROR] SUDO_PASSWORD is not set." >&2
+        return 1
+    else
+        echo "$SUDO_PASSWORD" | sudo -S bash -c "$*"
+        return $?
+    fi
+}
+
+# Function to keep sudo alive during script execution
+keep_sudo_alive() {
+    while true; do
+        echo "$SUDO_PASSWORD" | sudo -S -v
+        sleep 60
+    done
+}
+
+clean_sudo() {
+    kill "$SUDO_KEEPER_PID"
+
+    unset SUDO_PASSWORD
+}
+
+dynamic_me() {
+    local message="$1"
+    #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
+    local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
+    local NC="\033[0m"
+    local delay=0.1
+    local iterations=${2:-5}  # customize as needed
+
+    {
+        for ((i=1; i<=iterations; i++)); do
+            # Cycle through colors
+            color=${colors[$((i % ${#colors[@]}))]}
+
+            # Use \r to return to start of line, update with new color
+            printf "\r${color}                                            ${message}${NC}"
+
+            sleep "$delay"
+        done
+
+        # Final clear line
+        printf "\r\033[K"
+        #printf "\n"
+    } >&2
+}
+
+dynamic_color() {
     local message="$1"
     #local colors=("red" "yellow" "green" "cyan" "magenta" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
@@ -59,14 +187,43 @@ dynamic_color_line() {
     } >&2
 }
 
+# Function to check if pacman db is locked
+check_db_lock() {
+    if [[ -f /var/lib/pacman/db.lck ]]; then
+        echo -e "${RED}  >> Pacman database is locked.${NC}"
+        return 1 # Return failure instead of exiting
+    fi
+    return 0 # Return success if no lock is found
+}
+
+# Function to remove pacman db lock
+remove_db_lock() {
+    echo -e "${LIGHT_BLUE}==>> Removing pacman db lock...${NC}"
+    sudo rm -fv /var/lib/pacman/db.lck
+}
+
 # Function to check for Pacman database errors and offer to run Ppm_db_fixer
 check_pacman_db_error() {
     local error_message="$1"
     
     # Only proceed if the error message matches specific database-related patterns
-    if [[ "$error_message" =~ (database|keyring|sync|lock|gnupg) ]]; then
-        echo -e "${YELLOW}==>> Potential Pacman database issue detected.${NC}"
-        echo -e "${YELLOW}==>> Checking Pacman database integrity...${NC}"
+    if [[ "$error_message" =~ (lock|locked) ]]; then
+        # Remove db lock if it exists
+        echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
+        if ! check_db_lock; then
+            remove_db_lock   
+            # Retry the pacman update after removing the lock
+            echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
+            if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
+                echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
+                return 1  # If the command fails, exit the function
+            fi
+        else
+            echo -e "${GREEN}>> Pacman db lock not found.${NC}"
+        fi
+    elif [[ "$error_message" =~ (database|keyring|sync|gnupg) ]]; then
+        echo -e "${ORANGE}==>> Potential Pacman database issue detected.${NC}"
+        echo -e "${ORANGE}==>> Checking Pacman database integrity...${NC}"
         if ! sudo pacman -Dk; then
             echo -e "${RED}!! Database issue detected: $error_message${NC}"
         fi
@@ -83,11 +240,11 @@ check_pacman_db_error() {
             local db_fixer_script="${script_dir}/Ppm_db_fixer.sh"
             
             if [[ ! -f "$db_fixer_script" ]]; then
-                echo -e "${YELLOW}Ppm_db_fixer.sh not found. Attempting to download...${NC}"
+                echo -e "${ORANGE}==>> Ppm_db_fixer.sh not found. Attempting to download...${NC}"
                 
                 # Check if git is installed
                 if ! command -v git &> /dev/null; then
-                    echo -e "${ORANGE}Git is not installed. Attempting to install...${NC}"
+                    echo -e "${ORANGE}==>> Git was not found, but is needed. Attempting to install...${NC}"
                     sudo pacman -S --noconfirm git
                 fi
                 
@@ -100,10 +257,10 @@ check_pacman_db_error() {
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
                     chmod +x -v "$db_fixer_script"
                     
-                    echo -e "${GREEN}Successfully downloaded Ppm_db_fixer.sh${NC}"
+                    echo -e "${GREEN}==>> ✓Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
                     echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
-                    echo -e "${YELLOW}Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
+                    echo -e "${ORANGE}==>> Please download manually from: https://github.com/Made2Flex/Ppm_db_fixer${NC}"
                     return 1
                 fi
             fi
@@ -115,7 +272,7 @@ check_pacman_db_error() {
                 return $?  # Return the exit status of the repair script
             else
                 echo -e "${RED}!! Pacman database repair script not found.${NC}"
-                echo -e "${YELLOW}Please download Ppm_db_fixer.sh and run it manually.${NC}"
+                echo -e "${ORANGE}Please download Ppm_db_fixer.sh and run it manually.${NC}"
                 return 1
             fi
         else
@@ -132,27 +289,33 @@ check_pacman_db_error() {
 run_command() {
     local command="$1"
     local output
-    
-    # Capture both stdout and stderr
-    output=$(eval "$command" 2>&1)
-    local exit_code=$?
-    
+
+    # Check if the command requires sudo
+    if [[ "$command" == sudo* ]]; then
+        # Use sudo_cached for commands that require sudo
+        output=$(sudo_cached "${command#sudo }" 2>&1 | tee /dev/tty)
+    else
+        # Capture both stdout and stderr for non-sudo commands
+        output=$(eval "$command" 2>&1 | tee /dev/tty)
+    fi
+
+    local exit_code=${PIPESTATUS[0]}
+
     if [[ $exit_code -ne 0 ]]; then
         echo -e "${RED}Command failed with exit code $exit_code:${NC}"
         echo "$output"
-        
+
         # Pass the error output to check_pacman_db_error
         check_pacman_db_error "$output"
-        
+
         return 1
     fi
-    
+
     return 0
 }
 
-# Function to check if running in a terminal and offer to open one if not
 get_script_path() {
-    # Resolve the full path of the current script
+    # Resolve the full path
     readlink -f "$0"
 }
 
@@ -198,12 +361,12 @@ check_terminal() {
     fi
 }
 
-# Function to show ascii art header
-show_ascii_header() {
+# Function to show ascii header
+show_header() {
     echo -e "${BLUE}"
-    ascii_art_header
+    ascii_header
+    dynamic_me "Qnk6IE1hZGUyRmxleA=="
     echo -e "${NC}"
-    sleep 1
 }
 
 # Localization function
@@ -218,27 +381,27 @@ get_system_language() {
     case "$language_code" in
         "es")
             # Spanish translations
-            GREET_MESSAGE="¡Hola, %s-sama"
-            UPDATE_PROMPT="¿Quieres actualizar ahora? (Sí/No): "
+            GREET_MESSAGE="¡Hola, %s"
+            UPDATE_PROMPT="¿Quieres actualizar el systema ahora? (Sí/No): "
             ;;
         "fr")
             # French translations
-            GREET_MESSAGE="Bonjour, %s-sama"
+            GREET_MESSAGE="Bonjour, %s"
             UPDATE_PROMPT="Voulez-vous mettre à jour maintenant ? (Oui/Non) : "
             ;;
         "de")
             # German translations
-            GREET_MESSAGE="Hallo, %s-sama"
+            GREET_MESSAGE="Hallo, %s"
             UPDATE_PROMPT="Möchten Sie jetzt aktualisieren? (Ja/Nein): "
             ;;
         "ja")
             # Japanese translations
-            GREET_MESSAGE="%s-sama、こんにちは"
+            GREET_MESSAGE="%s、こんにちは"
             UPDATE_PROMPT="今すぐ更新しますか？ (はい/いいえ): "
             ;;
         *)
             # Default to English
-            GREET_MESSAGE="Hello, %s-sama"
+            GREET_MESSAGE="Hello, %s"
             UPDATE_PROMPT="Do you want to update Now? (Yes/No): "
             ;;
     esac
@@ -292,7 +455,7 @@ detect_distribution() {
             "debian"|"ubuntu"|"linuxmint")
                 DISTRO="Debian-based"
                 PACKAGE_MANAGER="apt"
-                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US" # change US to your actual country.
+                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US" # change 'US' to your actual country.
                 ;;
             *)
                 echo -e "${RED}!!! Unsupported distribution: $DISTRO_ID${NC}"
@@ -310,11 +473,12 @@ detect_distribution() {
 # Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
+    dynamic_color "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
-    echo -e "  1. Download the dep_package from the internet"
-    echo -e "  2. Use: sudo dpkg -i dep_package.deb"
-    dynamic_color_line "Manual intervention required to install deps."
-    sleep 1
+    echo -e "   . Download the package from the internet"
+    echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
+    echo -e "   . Use: sudo pacman -U package.pkg.tar.zst for Arch based systems"
+    echo -e "   . Note: You may retry your distro's package manager"
     echo -e "${ORANGE} ==>> Now exiting...${NC}"
     exit 1
 }
@@ -330,13 +494,13 @@ check_dependencies() {
     # Define dependencies based on distribution
     case "$DISTRO_ID" in
         "arch")
-            deps=("sudo" "pacman" "yay")
+            deps=("sudo" "pacman" "yay" "pacman-contrib")
             ;;
         "manjaro")
-            deps=("sudo" "pacman" "pacman-mirrors")
+            deps=("sudo" "pacman" "pacman-mirrors" "yay" "pacman-contrib")
             ;;
         "endeavouros")
-            deps=("sudo" "pacman" "eos-rankmirrors" "reflector")
+            deps=("sudo" "pacman" "eos-rankmirrors" "reflector" "yay" "pacman-contrib")
             ;;
         "debian"|"ubuntu"|"linuxmint")
             deps=("sudo" "apt" "nala")
@@ -347,18 +511,23 @@ check_dependencies() {
             ;;
     esac
 
-    # Check for missing dependencies
+   # Check for missing dependencies
     for cmd in "${deps[@]}"; do
-        if ! command -v "$cmd" &> /dev/null; then
-            missing_deps+=("$cmd")
+        if [[ "$cmd" == "pacman-contrib" ]]; then
+            if ! pacman -Q "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
+        else
+            if ! command -v "$cmd" &>/dev/null; then
+                missing_deps+=("$cmd")
+            fi
         fi
     done
 
-    # If there are missing dependencies
     if [ ${#missing_deps[@]} -ne 0 ]; then
         echo -e "${RED}!! The following dependencies are missing:${NC}"
         for dep in "${missing_deps[@]}"; do
-            echo -e "${WHITE}  - $dep${NC}"
+            echo -e "${MAGENTA}  - $dep${NC}"
         done
 
         # Prompt user to install
@@ -375,6 +544,21 @@ check_dependencies() {
                         echo -e "${LIGHT_BLUE}  >> Installing sudo...${NC}"
                         su -c "pacman -S --noconfirm sudo"
                     fi
+
+                    for dep in "${missing_deps[@]}"; do
+                        if [[ "$dep" == "pacman-contrib" ]]; then
+                            echo -e "${LIGHT_BLUE}  >> Installing pacman-contrib...${NC}"
+                            sudo pacman -S --noconfirm --needed pacman-contrib
+                            if pacman -Q pacman-contrib &>/dev/null; then
+                                echo -e "${GREEN}  >> ✓Successfully installed pacman-contrib${NC}"
+                            else
+                                echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
+                                echo -e "${ORANGE}  >> Output:${NC}"
+                                echo "$install_output"
+                                echo -e "${ORANGE}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                            fi
+                            break
+                        fi
 
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
@@ -393,24 +577,34 @@ check_dependencies() {
                             rm -rfv yay
                         fi
 
-                        # Prompt to remove git
-                        read -rp "Do you want to remove previously installed git? (Yes/No): " git_remove
-                        git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
-                        if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
-                            sudo pacman -Rns --noconfirm git
+                            # Prompt to remove git
+                            read -rp "Do you want to remove previously installed git? (Yes/No): " git_remove
+                            git_remove=$(echo "$git_remove" | tr '[:upper:]' '[:lower:]')
+                            if [[ -z "$git_remove" || "$git_remove" == "yes" || "$git_remove" == "y" ]]; then
+                                sudo pacman -Rnsu --noconfirm git
+                            else
+                                echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
+                            fi
                         else
-                            echo -e "${ORANGE}==>> Continuing without removing git...${NC}"
+                            echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
+                            sudo pacman -S --noconfirm --needed "$dep"
+                            if command -v "$dep" &>/dev/null; then
+                                echo -e "${GREEN}  >> ✓Successfully installed $dep${NC}"
+                            else
+                                echo -e "${RED}!! Failed to install $dep.${NC}"
+                                warn_manual_install
+                            fi
                         fi
-                    fi
+                    done
                     ;;
                 "debian"|"ubuntu"|"linuxmint")
                     # Check if apt is available
-                        if command -v apt &> /dev/null; then
-                            for dep in "${missing_deps[@]}"; do
-                                echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
-                                sudo apt install -y "$dep"
-                            done
-                        fi
+                    if command -v apt &> /dev/null; then
+                        for dep in "${missing_deps[@]}"; do
+                            echo -e "${LIGHT_BLUE}  >> Installing $dep...${NC}"
+                            sudo apt install -y "$dep"
+                        done
+                    fi
                     ;;
                 *)
                     echo -e "${RED}!! Unsupported distribution for dependency installation.${NC}"
@@ -422,9 +616,9 @@ check_dependencies() {
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color_line "Try to install them manually, then run the script again."
+            dynamic_color "Try to install them manually, then run the script again."
             sleep 1
-            echo -e "${ORANGE} ==>> Now exiting."
+            echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
         fi
     fi
@@ -433,7 +627,7 @@ check_dependencies() {
 # Function to create timestamped log file
 create_timestamped_log() {
     local original_log_file="$1"
-    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local timestamp=$(date +"%Y-%m-%d %I:%M:%S %p")
     local log_dir=$(dirname "$original_log_file")
     local filename=$(basename "$original_log_file")
     local timestamped_log_file="${log_dir}/${timestamp}_${filename}"
@@ -470,20 +664,21 @@ create_pkg_list() {
 
     # Check if backup directory is writable
     if [ ! -w "$backup_dir" ]; then
-        echo -e "${RED}!!! Backup directory is not writable: $backup_dir${NC}"
-        mkdir -p "$backup_dir" 2>/dev/null
+        echo -e "${RED}!!! Backup directory does not exit: $backup_dir${NC}"
+        echo -e "${ORANGE}==>> Creating one now...${NC}"
+        mkdir -pv "$backup_dir" 2>/dev/null
         if [ $? -ne 0 ]; then
-            echo -e "${RED}!! Cannot create backup directory. Check permissions.${NC}"
+            echo -e "${RED}!! Cannot create backup directory. Check permissions and or create one manually.${NC}"
             return 1
         fi
     fi
 
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
-            # Capture package list with error handling
-            if sudo pacman -Qeq > "$pkg_list_file" 2>"$log_file"; then
-                local pkg_count=$(pacman -Q | wc -l)
-                echo -e "${ORANGE}==>> Total Installed Packages: ${WHITE}$pkg_count${NC}"
+            # Capture package list, excluding AUR packages
+            if pacman -Qeq --native > "$pkg_list_file" 2>"$log_file"; then
+                local pkg_count=$(pacman -Q --native | wc -l)
+                echo -e "${ORANGE}==>> Total Installed Packages (excluding AUR): ${WHITE}$pkg_count${NC}"
                 echo -e "${BLUE}  >> Package list saved to $pkg_list_file${NC}"
             else
                 local timestamped_log=$(create_timestamped_log "$log_file")
@@ -541,7 +736,7 @@ create_aur_pkg_list() {
                     return 0
                 fi
             else
-                # Create timestamped log file for the error
+                # Create timestamped log file
                 local timestamped_log=$(create_timestamped_log "$log_file")
                 echo "$error_output" > "$timestamped_log"
                 echo -e "${RED}!! Error getting AUR package list. See $timestamped_log for details.${NC}"
@@ -549,7 +744,7 @@ create_aur_pkg_list() {
             fi
             ;;
         *)
-            echo -e "${LIGHT_BLUE}  >> Skipping AUR package list (not an Arch-based distribution)${NC}"
+            echo -e "${LIGHT_BLUE}   ~> Skipping AUR package list (not an Arch-based distribution)${NC}"
             return 0
             ;;
     esac
@@ -557,7 +752,7 @@ create_aur_pkg_list() {
 
 # Function to check if mirror sources are refreshed
 check_mirror_source_refreshed() {
-    echo -e "${ORANGE}==>> Checking mirror sources...${NC}"
+    echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
@@ -570,12 +765,30 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}  >> Mirror source $mirror_sources_file hasn't been refreshed in over a week!${NC}"
+                    echo -e "${MAGENTA}  >> Mirror list $mirror_sources_file hasn't been refreshed in over a week!${NC}"
                     echo -e "${ORANGE}  >> Backing up current mirrorlist...${NC}"
 
                     # Backup the current mirrorlist with a timestamped filename
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
+
+                   # Keep only the 3 most recent backups
+                    local backup_dir="/etc/pacman.d"
+                    local backup_pattern="mirrorlist.backup.*"
+
+                    # Collect backups with explicit globbing, suppressing errors
+                    mapfile -t backups < <(find "$backup_dir" -maxdepth 1 -type f -name "$backup_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2-)
+
+                    if (( ${#backups[@]} > 3 )); then
+                        for file in "${backups[@]:3}"; do
+                            if [[ -f "$file" ]]; then  # Double-check it's a file before removing
+                                echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
+                                sudo rm -f "$file"
+                            else
+                                echo -e "${RED}!! Skipping invalid file: $file${NC}"
+                            fi
+                        done
+                    fi
 
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
@@ -585,7 +798,7 @@ check_mirror_source_refreshed() {
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN}  >> eos-rankmirrors completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
@@ -594,7 +807,7 @@ check_mirror_source_refreshed() {
                         if command -v reflector &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
-                                echo -e "${GREEN}  >> reflector completed ✓successfully${NC}"
+                                echo -e "${GREEN} ->> reflector completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! reflector failed${NC}"
                             fi
@@ -604,12 +817,12 @@ check_mirror_source_refreshed() {
                         $MIRROR_REFRESH_CMD
                     fi
 
-                    echo -e "${GREEN}  >> Mirrors have been refreshed!${NC}"
+                    echo -e "${GREEN}==>> Mirrors have been refreshed.${NC}"
                 else
-                    echo -e "${GREEN}  >> Mirror source is fresh. moving on!${NC}"
+                    echo -e "${GREEN} ->> Mirror list is fresh. moving on..${NC}"
                 fi
             else
-                echo -e "${RED}!!! Mirror source file not found: $mirror_sources_file${NC}"
+                echo -e "${RED}!!! Mirror-list file not found: $mirror_sources_file${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -621,18 +834,18 @@ check_mirror_source_refreshed() {
                 local week_seconds=$((7 * 24 * 3600))
 
                 if (( (now - last_modified) > week_seconds )); then
-                    echo -e "${MAGENTA}==>> Nala sources haven't been refreshed in over a week!${NC}"
-                    echo -e "${ORANGE}==>> Refreshing Nala sources...${NC}"
+                    echo -e "${MAGENTA}==>> Nala mirror-list hasn't been refreshed in over a week!${NC}"
+                    echo -e "${ORANGE}==>> Refreshing Nala mirror-list...${NC}"
 
                     # Use the MIRROR_REFRESH_CMD
                     sudo $MIRROR_REFRESH_CMD
 
-                    echo -e "${GREEN}==>> Nala sources have been refreshed.${NC}"
+                    echo -e "${GREEN}==>> Nala mirror-list has been refreshed.${NC}"
                 else
-                    echo -e "${LIGHT_BLUE}==>> Sources are fresh. Moving On!${NC}"
+                    echo -e "${LIGHT_BLUE}==>> Mirror-list is fresh. Moving On!${NC}"
                 fi
             else
-                echo -e "${RED}!!! Nala sources file not found: $nala_sources_file${NC}"
+                echo -e "${RED}!!! Nala mirror-list file not found: $nala_sources_file${NC}"
             fi
             ;;
         *)
@@ -708,26 +921,28 @@ update_system() {
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
-            sudo pacman -Syyuu --noconfirm --needed --color=auto
+            output=$(checkupdates -c 2>/dev/null)
+            exit_code=$?
 
-            # Use the global AUR_PACKAGES variable to determine AUR updates
+            if [[ -n "$output" ]]; then
+                echo -e "${ORANGE}  >>${NC} ${GREEN}Updates found!${NC} ${ORANGE}Proceeding with system update...${NC}"
+                run_command "sudo pacman -Syyuu --noconfirm --needed"
+            else
+                echo -e "${ORANGE}==>> Pacman packages are up-to-date.${NC}"
+            fi
+
+            # Use AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
                 echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
-                # Check yay cache exists
                 if [ -d "$HOME/.cache/yay" ]; then
-                    # Check if yay cache is empty
                     if [ -z "$(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")" ]; then
-                        echo -e "${GREEN}  >> yay cache is clean${NC}"
+                        echo -e "${GREEN}  >> Cache is clean${NC}"
                     else
-                        # Collect directories to be cleaned
                         mapfile -t yay_cache_dirs < <(find "$HOME/.cache/yay" -maxdepth 1 -type d | grep -v "^$HOME/.cache/yay$")
-                        
                         if [ ${#yay_cache_dirs[@]} -gt 0 ]; then
                             echo -e "${ORANGE}==>> Cleaning yay cache directories: ${NC}"
-                            printf "${WHITE}  - %s\n${NC}" "$(basename "${yay_cache_dirs[@]}")"
-                        
-                        # Remove the directories
-                        for dir in "${yay_cache_dirs[@]}"; do
+                            for dir in "${yay_cache_dirs[@]}"; do
+                                printf "${WHITE}  - %s\n${NC}" "$(basename "$dir")"
                                 rm -rf "$dir"
                             done
                         fi
@@ -736,7 +951,15 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
+                run_command "yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter"
+            fi
+
+            aur_updates=$(yay -Qua 2>/dev/null)
+            
+            if [[ -n "$output" || -n "$aur_updates" ]]; then
+                echo -e "${ORANGE}==>> System has been updated.${NC}"
+            else
+                echo -e "${GREEN}==>> System is Up to Date.${NC}"
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -755,7 +978,7 @@ update_system() {
             stop_spinner
 
             # Check command result
-            if [ $exit_status -eq 0 ] && echo "$update_output" | grep -q 'packages can be upgraded'; then
+            if [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -q 'packages can be upgraded'; then
                 echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
                 echo -e "${ORANGE}==>> Now Witness MEOW POWA!!!!!${NC}"
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
@@ -781,16 +1004,14 @@ prompt_update() {
     while true; do
         # Use localized prompt
         get_system_language
-        read -rp "$UPDATE_PROMPT" answer
+        read -rp "$(echo -e "${MAGENTA}$UPDATE_PROMPT${NC}")" answer
         answer=$(echo "$answer" | tr '[:upper:]' '[:lower:]')
 
         if [[ -z "$answer" || "$answer" == "yes" || "$answer" == "y" ]]; then
             update_system
             break
         elif [[ "$answer" == "no" || "$answer" == "n" ]]; then
-            echo -e "${ORANGE}<< You have chosen not to upgrade.${NC}"
             echo -e "${ORANGE}<< There is nothing to do...${NC}"
-            sleep 1
             echo -e "${ORANGE}>> Meow Out!${NC}"
             break
         else
@@ -799,18 +1020,162 @@ prompt_update() {
     done
 }
 
+# Global variables to store BTRFS flags
+BTRFS_CHECKED=false
+BTRFS_SNAPSHOTS_SETUP=false
+
+# Path to the STATE_FILE
+# It stores the value of the above flags
+STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
+
+# Function to load the state from the STATE_FILE
+load_state() {
+    if [[ -f "$STATE_FILE" ]]; then
+        # Attempt to source the state file and handle potential errors
+        if ! source "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to load state from $STATE_FILE. Using default values.${NC}"
+            # reset flags if loading the state fails
+            BTRFS_CHECKED=false
+            BTRFS_SNAPSHOTS_SETUP=false
+        #else
+            #echo -e "${BLUE}>>>> State loaded from $STATE_FILE.${NC}"
+        fi
+    else
+        # Create the directory if it doesn't exist
+        mkdir -p "$(dirname "$STATE_FILE")" || {
+            echo -e "${RED}!! Failed to create directory for $STATE_FILE.${NC}"
+            exit 1
+        }
+
+        # Initialize state with default values
+        echo -e "${ORANGE}==>> State file not found. Creating new state file with default values.${NC}"
+        BTRFS_CHECKED=false
+        BTRFS_SNAPSHOTS_SETUP=false
+
+        # Create the state file with default values if it doesn't exist
+        if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+            echo -e "${RED}!! Failed to create the state file at $STATE_FILE.${NC}"
+            exit 1
+        fi
+    fi
+}
+
+# Function to save the state to the STATE_FILE
+save_state() {
+    if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
+        echo -e "${RED}!! Failed to save state to $STATE_FILE.${NC}"
+        exit 1
+    else
+        echo -e "${BLUE}>>>> State saved successfully to $STATE_FILE.${NC}"
+    fi
+}
+
+# Function to check if the filesystem is BTRFS and if snapshots are set up
+check_btrfs_snapshots() {
+    # Load the state from the STATE_FILE
+    load_state
+
+    # Check if the filesystem is BTRFS and if it hasn't been checked yet
+    if [[ "$BTRFS_CHECKED" == false && "$(lsblk -f | grep -E 'btrfs')" ]]; then
+        echo -e "${GREEN}==>> Detected BTRFS filesystem.${NC}"
+        BTRFS_CHECKED=true
+
+        # Check if BTRFS snapshots are set up
+        if [[ "$BTRFS_SNAPSHOTS_SETUP" == false ]]; then
+            echo -e "${ORANGE}==>> Checking if BTRFS snapshots are set up...${NC}"
+
+            # Use btrfs command to check for existing snapshots
+            if sudo btrfs subvolume list / | grep -q "snapshot"; then
+                echo -e "${GREEN}  >> BTRFS snapshots are already set up.${NC}"
+                BTRFS_SNAPSHOTS_SETUP=true
+            else
+                echo -e "${RED}==>> BTRFS snapshots are not set up.${NC}"
+                read -rp "$(echo -e "${MAGENTA}Would you like to set up BTRFS snapshots? (y/N)${NC} ")" setup_choice
+                setup_choice=$(echo "$setup_choice" | tr '[:upper:]' '[:lower:]')
+
+                if [[ "$setup_choice" == "y" || "$setup_choice" == "yes" || -z "$setup_choice" ]]; then
+                    # Check if git is installed
+                    if ! command -v git &> /dev/null; then
+                        echo -e "${ORANGE}==>> Git is not installed, but its needed. Attempting to install...${NC}"
+                        sudo pacman -S --noconfirm git || {
+                            echo -e "${RED}!! Failed to install git. Please install it manually.${NC}"
+                            exit 1
+                        }
+                    fi
+
+                    # Clone and run setupsnapshots.sh
+                    local script_dir
+                    script_dir=$(dirname "$(get_script_path)")
+                    local setup_script="${script_dir}/setupsnapshots.sh"
+
+                    if [[ ! -f "$setup_script" ]]; then
+                        echo -e "${LIGHT_BLUE}==>> Cloning setupsnapshots script...${NC}"
+                        git clone https://github.com/Made2Flex/setupsnapshots.git "$script_dir/setupsnapshots"
+                        setup_script="$script_dir/setupsnapshots/setupsnapshots.sh"
+                    fi
+
+                    if [[ -f "$setup_script" ]]; then
+                        echo -e "${LIGHT_BLUE}==>> Running the setupsnapshots script...${NC}"
+                        bash "$setup_script"
+                        if [[ $? -eq 0 ]]; then
+                            echo -e "${GREEN}==>> BTRFS snapshots have been set up ✓successfully!${NC}"
+                            BTRFS_SNAPSHOTS_SETUP=true
+                        else
+                            echo -e "${RED}==>> Failed to set up BTRFS snapshots.${NC}"
+                        fi
+
+                        # Clean up
+                        echo -e "${ORANGE}==>> Removing previously created directory..."
+                        rm -rfv "$script_dir/setupsnapshots"
+
+                        # Prompt to remove git
+                        if command -v git &> /dev/null; then
+                            read -rp "$(echo -e "${MAGENTA}Would you like to remove previously installed git? (y/N)${NC} ")" git_remove_choice
+                            git_remove_choice=$(echo "$git_remove_choice" | tr '[:upper:]' '[:lower:]')
+
+                            if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
+                                sudo pacman -Rnsu --noconfirm git
+                            fi    
+                        fi
+                    else
+                        echo -e "${RED}!! setupsnapshots.sh not found after cloning.${NC}"
+                    fi
+                else
+                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false and BTRFS_SNAPSHOTS_SETUP=false in /tmp/btrfs_snapshot_state.txt or remove the file.${NC}"
+                    echo -e "${ORANGE}==>> Skipping BTRFS snapshot setup.${NC}"
+                    BTRFS_CHECKED=true  # Set flag to avoid asking again
+                fi
+            fi
+        fi
+    elif [[ "$BTRFS_CHECKED" == true ]]; then
+        return 0
+    else
+        echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
+        BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
+    fi
+
+    # Save the state to STATE_FILE
+    save_state
+}
+
 # Alchemist den
 main() {
+    parser "$@"
     get_system_language  # call it early to set up translations
     check_terminal
-    show_ascii_header
+    show_header
     greet_user
+    cache_sudo_password
+    keep_sudo_alive &  # Start the sudo keeper in the background
+    SUDO_KEEPER_PID=$! #
     check_dependencies
     create_pkg_list
     create_aur_pkg_list
     check_mirror_source_refreshed
+    check_btrfs_snapshots
     prompt_update
+    trap 'clean_sudo' EXIT INT TERM
 }
 
 # BoomShackalaka!!
-main
+main "$@"
