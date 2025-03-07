@@ -206,7 +206,7 @@ remove_db_lock() {
 check_pacman_db_error() {
     local error_message="$1"
     
-    # Only proceed if the error message matches specific database-related patterns
+    # Look for specific database-related patterns
     if [[ "$error_message" =~ (lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
@@ -221,13 +221,21 @@ check_pacman_db_error() {
         else
             echo -e "${GREEN}>> Pacman db lock not found.${NC}"
         fi
-    elif [[ "$error_message" =~ (database|keyring|sync|gnupg) ]]; then
+    elif [[ "$error_message" =~ (database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error) ]]; then
         echo -e "${ORANGE}==>> Potential Pacman database issue detected.${NC}"
-        echo -e "${ORANGE}==>> Checking Pacman database integrity...${NC}"
-        if ! sudo pacman -Dk; then
-            echo -e "${RED}!! Database issue detected: $error_message${NC}"
-        fi
+        echo -e "${ORANGE}==>> Detected error type: ${NC}"
         
+        # Identify specific error type
+        if [[ "$error_message" =~ keyring\s+error ]]; then
+            echo -e "${RED}  >> Keyring error detected${NC}"
+        elif [[ "$error_message" =~ sync\s+error ]]; then
+            echo -e "${RED}  >> Sync database error detected${NC}"
+        elif [[ "$error_message" =~ gnupg\s+error ]]; then
+            echo -e "${RED}  >> GnuPG error detected${NC}"
+        else
+            echo -e "${RED}  >> General database error detected${NC}"
+        fi
+
         read -rp "$(echo -e "${MAGENTA}Would you like to run the Pacman database repair script? (y/N)${NC} ")" repair_choice
         
         # Convert input to lowercase
