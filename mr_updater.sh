@@ -65,7 +65,7 @@ LIGHT_BLUE='\033[1;36m'
 WHITE='\033[0;37m'
 NC='\033[0m' # No color
 
-# ASCII Art Header
+# ASCII Header
 ascii_header() {
     cat << 'EOF'
 $$\   $$\                 $$\             $$\
@@ -145,7 +145,7 @@ dynamic_me() {
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
     local NC="\033[0m"
     local delay=0.1
-    local iterations=${2:-5}  # customize as needed
+    local iterations=${2:-5}
 
     {
         for ((i=1; i<=iterations; i++)); do
@@ -158,7 +158,7 @@ dynamic_me() {
             sleep "$delay"
         done
 
-        # Final clear line
+        # clear line
         printf "\r\033[K"
         #printf "\n"
     } >&2
@@ -166,7 +166,6 @@ dynamic_me() {
 
 dynamic_color() {
     local message="$1"
-    #local colors=("red" "yellow" "green" "cyan" "magenta" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
     local NC="\033[0m"
     local delay=0.1
@@ -174,18 +173,13 @@ dynamic_color() {
 
     {
         for ((i=1; i<=iterations; i++)); do
-            # Cycle through colors
             color=${colors[$((i % ${#colors[@]}))]}
 
-            # Use \r to return to start of line, update with new color
             printf "\r${color}==>> ${message}${NC}"
 
             sleep "$delay"
         done
 
-        # Final clear line
-        #printf "\r\033[K"
-        # Add a newline to move to the next line
         printf "\n"
     } >&2
 }
@@ -196,7 +190,7 @@ check_db_lock() {
         echo -e "${RED}  >> Pacman database is locked.${NC}"
         return 1 # Return failure instead of exiting
     fi
-    return 0 # Return success if no lock is found
+    return 0
 }
 
 # Function to remove pacman db lock
@@ -209,13 +203,13 @@ remove_db_lock() {
 check_pacman_db_error() {
     local error_message="$1"
     
-    # Look for specific database-related patterns
+    # Look for database-related patterns
     if [[ "$error_message" =~ (lock|locked) ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
             remove_db_lock   
-            # Retry the pacman update after removing the lock
+            # Retry pacman update after removing the lock
             echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
             if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
                 echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
@@ -266,7 +260,7 @@ check_pacman_db_error() {
                     
                     # Make the script executable
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
-                    chmod +x -v "$db_fixer_script"
+                    chmod -Rfv +x "$db_fixer_script"
                     
                     echo -e "${GREEN}==>> ✓Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
@@ -291,8 +285,7 @@ check_pacman_db_error() {
             return 1
         fi
     fi
-    
-    # If no database-related error was detected
+
     return 0
 }
 
@@ -306,7 +299,7 @@ run_command() {
         # Use sudo_cached for commands that require sudo
         output=$(sudo_cached "${command#sudo }" 2>&1 | tee /dev/tty)
     else
-        # Capture both stdout and stderr for non-sudo commands
+        # Capture both stdout and stderr
         output=$(eval "$command" 2>&1 | tee /dev/tty)
     fi
 
@@ -326,7 +319,7 @@ run_command() {
 }
 
 get_script_path() {
-    # Resolve the full path
+    # Resolve full path
     readlink -f "$0"
 }
 
@@ -372,7 +365,7 @@ check_terminal() {
     fi
 }
 
-# Function to show header
+#show header
 show_header() {
     echo -e "${BLUE}"
     ascii_header
@@ -382,7 +375,7 @@ show_header() {
 
 # Localization function
 get_system_language() {
-    # Get the system's default language
+    # Get system's default language
     local lang=${LANG:-en_US.UTF-8}
 
     # Extract language code
@@ -423,7 +416,7 @@ greet_user() {
     local username
     username=$(whoami)
 
-    # Get system language translations
+    # Get language translations
     get_system_language
 
     # Use the appropriate greeting
@@ -466,7 +459,7 @@ detect_distribution() {
             "debian"|"ubuntu"|"linuxmint")
                 DISTRO="Debian-based"
                 PACKAGE_MANAGER="apt"
-                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US" # change 'US' to your actual country.
+                MIRROR_REFRESH_CMD="sudo nala fetch --auto --fetches 10 --country US" # change 'US' to your actual country. check nala --help
                 ;;
             *)
                 echo -e "${RED}!!! Unsupported distribution: $DISTRO_ID${NC}"
@@ -494,7 +487,7 @@ warn_manual_install() {
     exit 1
 }
 
-# Function to check_dependencies
+# Function to check dependencies
 check_dependencies() {
     # Detect distribution first
     detect_distribution
@@ -517,7 +510,7 @@ check_dependencies() {
             deps=("sudo" "apt" "nala")
             ;;
         *)
-            echo -e "${RED}!! Unsupported distribution for dependency check.${NC}"
+            echo -e "${RED}!! Unsupported distribution.${NC}"
             exit 1
             ;;
     esac
@@ -550,7 +543,7 @@ check_dependencies() {
             # Distribution-specific dependency installation
             case "$DISTRO_ID" in
                 "arch"|"manjaro"|"endeavouros")
-                    # Arch-based specific installations
+                    # Arch-based installations
                     if [[ " ${missing_deps[@]} " =~ " sudo " ]]; then
                         echo -e "${LIGHT_BLUE}  >> Installing sudo...${NC}"
                         su -c "pacman -S --noconfirm sudo"
@@ -572,19 +565,19 @@ check_dependencies() {
                         fi
 
                     if [[ " ${missing_deps[@]} " =~ " yay " ]]; then
-                        echo -e "${LIGHT_BLUE}  >> Attempting to install yay from repo...${NC}"
+                        echo -e "${LIGHT_BLUE}  >> Attempting to install yay...${NC}"
                         if sudo pacman -S --noconfirm yay 2>/dev/null; then
                             echo -e "${GREEN}  >> ✓Successfully installed yay from repo${NC}"
                         else
                             echo -e "${RED}!! Failed to install yay from repo.${NC}"
-                            echo -e "${LIGHT_BLUE}  >> Installing git and building from AUR...${NC}"
+                            echo -e "${LIGHT_BLUE}  >> Installing git and building from AUR..${NC}"
                             sudo pacman -S --noconfirm base-devel git
-                            echo -e "${LIGHT_BLUE}  >> Cloning and building yay from AUR...${NC}"
+                            echo -e "${LIGHT_BLUE}  >> Cloning and building yay...${NC}"
                             git clone https://aur.archlinux.org/yay.git
                             cd yay || exit
                             makepkg -si --noconfirm
                             cd .. || exit
-                            echo -e "${LIGHT_BLUE}  >> Removing previously created yay source directory...${NC}"
+                            echo -e "${LIGHT_BLUE}  >> Removing previously created source directory...${NC}"
                             rm -rfv yay
                         fi
 
@@ -618,7 +611,7 @@ check_dependencies() {
                     fi
                     ;;
                 *)
-                    echo -e "${RED}!! Unsupported distribution for dependency installation.${NC}"
+                    echo -e "${RED}!! Unsupported distribution.${NC}"
                     warn_manual_install
                     exit 1
                     ;;
@@ -698,7 +691,7 @@ create_pkg_list() {
             fi
             ;;
         "debian"|"ubuntu"|"linuxmint")
-            # Capture package list with error handling
+            # Capture package list
             if sudo dpkg-query -f '${binary:Package}\n' -W > "$pkg_list_file" 2>"$log_file"; then
                 local pkg_count=$(dpkg-query -f '${binary:Package}\n' -W | wc -l)
                 echo -e "${ORANGE}==>> Total Installed Packages: $pkg_count${NC}"
@@ -724,7 +717,7 @@ AUR_PACKAGES=""
 
 # Function to create aur-pkglist
 create_aur_pkg_list() {
-    # Only proceed for Arch-based distributions
+    # Arch-based distributions
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
             local log_file="$HOME/bk/arch/aur-pkglst.log"
@@ -783,16 +776,16 @@ check_mirrors() {
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
-                   # Keep only the 3 most recent backups
+                   # Keep the 3 most recent backups
                     local backup_dir="/etc/pacman.d"
                     local backup_pattern="mirrorlist.backup.*"
 
-                    # Collect backups with explicit globbing, suppressing errors
+                    # Collect backups
                     mapfile -t backups < <(find "$backup_dir" -maxdepth 1 -type f -name "$backup_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2-)
 
                     if (( ${#backups[@]} > 3 )); then
                         for file in "${backups[@]:3}"; do
-                            if [[ -f "$file" ]]; then  # Double-check it's a file before removing
+                            if [[ -f "$file" ]]; then  # Double-check it's a file
                                 echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
                                 sudo rm -f "$file"
                             else
@@ -805,7 +798,6 @@ check_mirrors() {
 
                     # Handle multiple mirror refresh commands for EndeavourOS
                     if [[ "$DISTRO_ID" == "endeavouros" ]]; then
-                        # Try both commands
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
@@ -824,7 +816,7 @@ check_mirrors() {
                             fi
                         fi
                     else
-                        # For other distributions, use the single MIRROR_REFRESH_CMD
+                        # For other distributions.
                         $MIRROR_REFRESH_CMD
                     fi
 
@@ -848,7 +840,6 @@ check_mirrors() {
                     echo -e "${MAGENTA}==>> Nala mirror-list hasn't been refreshed in over a week!${NC}"
                     echo -e "${ORANGE}==>> Refreshing Nala mirror-list...${NC}"
 
-                    # Use the MIRROR_REFRESH_CMD
                     sudo $MIRROR_REFRESH_CMD
 
                     echo -e "${GREEN}==>> Nala mirror-list has been refreshed.${NC}"
@@ -868,7 +859,6 @@ check_mirrors() {
 
 # Dummy function to flush output
 fflush() {
-    # Force output buffer to flush
     >&2 echo -n ""
 }
 
@@ -895,7 +885,7 @@ start_spinner_spinner() {
             for spinner in "${spinners[@]}"; do
                 for color in "${colors[@]}"; do
                     if ! $spinner_running; then
-                        exit 0  # Explicitly exit the background process
+                        exit 0  # exit the background process
                     fi
                     printf "\r${color}%s Processing...${NC}" "$spinner" >&2
                     fflush
@@ -1004,13 +994,13 @@ update_system() {
             fi
             ;;
         *)
-            echo -e "${RED}!!! Unsupported distribution for system update.${NC}"
+            echo -e "${RED}!!! Unsupported distribution.${NC}"
             exit 1
             ;;
     esac
 }
 
-# Function to prompt user to update the system
+# Function to prompt user to update
 prompt_update() {
     while true; do
         # Use localized prompt
@@ -1042,10 +1032,10 @@ STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 # Function to load the state from the STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
-        # Attempt to source the state file and handle potential errors
+        # Attempt to source the state file
         if ! source "$STATE_FILE"; then
             echo -e "${RED}!! Failed to load state from $STATE_FILE. Using default values.${NC}"
-            # reset flags if loading the state fails
+            # reset flags if loading fails
             BTRFS_CHECKED=false
             BTRFS_SNAPSHOTS_SETUP=false
         #else
@@ -1086,7 +1076,7 @@ check_btrfs_snapshots() {
     # Load the state from the STATE_FILE
     load_state
 
-    # Check if the filesystem is BTRFS and if it hasn't been checked yet
+    # Check if the filesystem is BTRFS
     if [[ "$BTRFS_CHECKED" == false && "$(lsblk -f | grep -E 'btrfs')" ]]; then
         echo -e "${GREEN}==>> Detected BTRFS filesystem.${NC}"
         BTRFS_CHECKED=true
@@ -1149,12 +1139,12 @@ check_btrfs_snapshots() {
                             fi    
                         fi
                     else
-                        echo -e "${RED}!! setupsnapshots.sh not found after cloning.${NC}"
+                        echo -e "${RED}!! setupsnapshots.sh not found.${NC}"
                     fi
                 else
-                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false and BTRFS_SNAPSHOTS_SETUP=false in /tmp/btrfs_snapshot_state.txt or remove the file.${NC}"
+                    echo -e "${ORANGE}==>> To run the BTRFS snapshot setup again, set BTRFS_CHECKED=false and BTRFS_SNAPSHOTS_SETUP=false in /.config/mr_updater/btrfs_snapshot_state.txt or remove the file.${NC}"
                     echo -e "${ORANGE}==>> Skipping BTRFS snapshot setup.${NC}"
-                    BTRFS_CHECKED=true  # Set flag to avoid asking again
+                    BTRFS_CHECKED=true
                 fi
             fi
         fi
