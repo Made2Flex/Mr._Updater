@@ -94,8 +94,8 @@ cache_sudo_password() {
             exit 1
         fi
         echo
-
-        # Verify the password is correct
+        
+        # Verify the password
         if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
             export SUDO_PASSWORD
             return 0
@@ -125,8 +125,11 @@ sudo_cached() {
 # Function to keep sudo alive during script execution
 keep_sudo_alive() {
     while true; do
-        echo "$SUDO_PASSWORD" | sudo -S -v
-        sleep 60
+       if ! echo "$SUDO_PASSWORD" | sudo -S -v; then
+            echo -e "${RED}!! Failed to refresh sudo.${NC}" >&2
+            return 1
+        fi
+		sleep 60
     done
 }
 
@@ -369,7 +372,7 @@ check_terminal() {
     fi
 }
 
-# Function to show ascii header
+# Function to show header
 show_header() {
     echo -e "${BLUE}"
     ascii_header
@@ -632,7 +635,7 @@ check_dependencies() {
     fi
 }
 
-# Function to create timestamped log file
+# Function to create log file
 create_timestamped_log() {
     local original_log_file="$1"
     local timestamp=$(date +"%Y-%m-%d %I:%M:%S %p")
@@ -646,7 +649,7 @@ create_timestamped_log() {
     echo "$timestamped_log_file"
 }
 
-# Function to create pkglist with timestamped logging
+# Function to create pkglist
 create_pkg_list() {
     local log_file=""
     local pkg_list_file=""
@@ -719,7 +722,7 @@ create_pkg_list() {
 # Global variable to store AUR packages
 AUR_PACKAGES=""
 
-# Function to create aur-pkglist with timestamped logging
+# Function to create aur-pkglist
 create_aur_pkg_list() {
     # Only proceed for Arch-based distributions
     case "$DISTRO_ID" in
@@ -758,7 +761,7 @@ create_aur_pkg_list() {
     esac
 }
 
-# Function to check if mirror sources are refreshed
+# Function to check mirrors
 check_mirrors() {
     echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
@@ -959,7 +962,7 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-                run_command "yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter"
+                yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
             fi
 
             aur_updates=$(yay -Qua 2>/dev/null)
@@ -1176,6 +1179,10 @@ main() {
     cache_sudo_password
     keep_sudo_alive &  # Start the sudo keeper in the background
     SUDO_KEEPER_PID=$! #
+	if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
+        echo -e "${RED}!! Failed to start sudo keeper process. Continuing..${NC}"
+        unset SUDO_KEEPER_PID
+    fi
     check_dependencies
     create_pkg_list
     create_aur_pkg_list
