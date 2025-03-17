@@ -41,7 +41,7 @@ A powerful, multi-distribution system update script that supports various Linux 
 git clone https://github.com/Made2Flex/Mr._Updater.git
 
 2. Make the script executable:
-chmod +x update_multi-distro0.sh
+chmod +x mr_updater.sh
 
 ## 💻 Usage
 ./mr_updater.sh
@@ -50,6 +50,7 @@ chmod +x update_multi-distro0.sh
 
 - Modify color schemes in the script
 - Add support for more distributions
+- Add support for more languages
 
 ## 🐛 Troubleshooting
 
