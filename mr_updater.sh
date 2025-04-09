@@ -199,7 +199,7 @@ remove_db_lock() {
     sudo rm -fv /var/lib/pacman/db.lck
 }
 
-# Function to check for Pacman database errors and offer to run Ppm_db_fixer
+# Function to check for Pacman database errors
 check_pacman_db_error() {
     local error_message="$1"
     
@@ -277,19 +277,44 @@ check_pacman_db_error() {
                 return $?  # Return the exit status of the repair script
             else
                 echo -e "${RED}!! Pacman database repair script not found.${NC}"
-                echo -e "${ORANGE}Please download Ppm_db_fixer.sh and run it manually.${NC}"
+                echo -e "${ORANGE}Please download Ppm_db_fixer.sh from: https://github.com/Made2Flex/Ppm_db_fixer and run it manually.${NC}"
                 return 1
             fi
         else
             echo -e "${ORANGE}Skipping Pacman database repair.${NC}"
             return 1
         fi
+    elif [[ "$error_message" =~ "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu" ]]; then
+        echo -e "${ORANGE}==>> Detected GRUB configuration warning.${NC}"
+        echo -e "${ORANGE}==>> GRUB needs to be reconfigured to generate snapshot entries.${NC}"
+        
+        read -rp "$(echo -e "${MAGENTA}Would you like to run 'grub-mkconfig' now? (y/N)${NC} ")" grub_choice
+        grub_choice=$(echo "$grub_choice" | tr '[:upper:]' '[:lower:]')
+        
+        if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
+            echo -e "${LIGHT_BLUE}==>> Running 'grub-mkconfig' to generate configuration data...${NC}"
+            if sudo grub-mkconfig; then
+                sleep 3 # consider legacy HDD
+                sync  # Force file system sync
+                echo -e "${LIGHT_BLUE}==>> Writing GRUB configuration to /boot/grub/grub.cfg...${NC}"
+                if sudo grub-mkconfig -o /boot/grub/grub.cfg; then
+                    echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
+                else
+                    echo -e "${RED}!! Failed to write GRUB configuration file.${NC}"
+                fi
+            else
+                echo -e "${RED}!! Failed to generate GRUB configuration data.${NC}"
+            fi
+        else
+            echo -e "${ORANGE}==>>${NC} ${RED}!!! WARNING:${NC} ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!.${NC}"
+            echo -e "${ORANGE}==>> Skipping GRUB configuration update.${NC}"
+        fi
     fi
 
     return 0
 }
 
-# Function to run command, check for errors and pass it to check_pacman_db_error
+# Function to check for errors and pass them to check_pacman_db_error
 run_command() {
     local command="$1"
     local output
@@ -305,13 +330,12 @@ run_command() {
 
     local exit_code=${PIPESTATUS[0]}
 
+    # Pass output to check_pacman_db_error
+    check_pacman_db_error "$output"
+
     if [[ $exit_code -ne 0 ]]; then
         echo -e "${RED}Command failed with exit code $exit_code:${NC}"
         echo "$output"
-
-        # Pass the error output to check_pacman_db_error
-        check_pacman_db_error "$output"
-
         return 1
     fi
 
@@ -319,7 +343,6 @@ run_command() {
 }
 
 get_script_path() {
-    # Resolve full path
     readlink -f "$0"
 }
 
@@ -628,6 +651,16 @@ check_dependencies() {
     fi
 }
 
+# Function to strip log from colors and special characters
+strip_log() {
+    local input="$1"
+    # Remove ANSI color codes
+    input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
+    # Remove special characters
+    input=$(echo "$input" | tr -cd '\11\12\15\40-\176')
+    echo "$input"
+}
+
 # Function to create log file
 create_timestamped_log() {
     local original_log_file="$1"
@@ -636,7 +669,6 @@ create_timestamped_log() {
     local filename=$(basename "$original_log_file")
     local timestamped_log_file="${log_dir}/${timestamp}_${filename}"
 
-    # Copy the original log file with timestamp
     cp "$original_log_file" "$timestamped_log_file"
 
     echo "$timestamped_log_file"
@@ -723,7 +755,7 @@ create_aur_pkg_list() {
             local log_file="$HOME/bk/arch/aur-pkglst.log"
             local aur_pkg_list_file="$HOME/bk/arch/aur-pkglst.txt"
 
-            # Capture AUR packages and save to file
+            # Capture AUR packages and save to it file
             error_output=$(sudo pacman -Qmq 2>&1)
             if [ $? -eq 0 ]; then
                 AUR_PACKAGES="$error_output"
@@ -740,7 +772,7 @@ create_aur_pkg_list() {
                     return 0
                 fi
             else
-                # Create timestamped log file
+                # Create log file
                 local timestamped_log=$(create_timestamped_log "$log_file")
                 echo "$error_output" > "$timestamped_log"
                 echo -e "${RED}!! Error getting AUR package list. See $timestamped_log for details.${NC}"
@@ -772,7 +804,7 @@ check_mirrors() {
                     echo -e "${MAGENTA}  >> Mirror list $mirror_sources_file hasn't been refreshed in over a week!${NC}"
                     echo -e "${ORANGE}  >> Backing up current mirrorlist...${NC}"
 
-                    # Backup the current mirrorlist with a timestamped filename
+                    # Backup the current mirrorlist
                     sudo cp "$mirror_sources_file" "$mirror_sources_backup"
                     echo -e "${BLUE}  >> Mirrorlist backed up to $mirror_sources_backup${NC}"
 
@@ -780,12 +812,11 @@ check_mirrors() {
                     local backup_dir="/etc/pacman.d"
                     local backup_pattern="mirrorlist.backup.*"
 
-                    # Collect backups
                     mapfile -t backups < <(find "$backup_dir" -maxdepth 1 -type f -name "$backup_pattern" -printf "%T@ %p\n" 2>/dev/null | sort -rn | cut -d' ' -f2-)
 
                     if (( ${#backups[@]} > 3 )); then
                         for file in "${backups[@]:3}"; do
-                            if [[ -f "$file" ]]; then  # Double-check it's a file
+                            if [[ -f "$file" ]]; then
                                 echo -e "${LIGHT_BLUE}  >> Removing old backup: $file${NC}"
                                 sudo rm -f "$file"
                             else
@@ -796,19 +827,18 @@ check_mirrors() {
 
                     echo -e "${ORANGE}==>> Refreshing Mirrors...${NC}"
 
-                    # Handle multiple mirror refresh commands for EndeavourOS
                     if [[ "$DISTRO_ID" == "endeavouros" ]]; then
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN} ->> eos-rankmirrors completed ✓successfully${NC}"
+                                echo -e "${GREEN}-->> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
                         fi
 
                         if command -v reflector &> /dev/null; then
-                            echo -e "${LIGHT_BLUE}  >> Running reflector...${NC}"
+                            echo -e "${LIGHT_BLUE}-->> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
                                 echo -e "${GREEN} ->> reflector completed ✓successfully${NC}"
                             else
@@ -901,7 +931,6 @@ start_spinner_spinner() {
 stop_spinner() {
     spinner_running=false
 
-    # Wait a moment to ensure the spinner stops
     sleep 0.2
 
     # Kill the spinner process if it exists
@@ -932,7 +961,6 @@ update_system() {
                 echo -e "${ORANGE}==>> Pacman packages are up-to-date.${NC}"
             fi
 
-            # Use AUR_PACKAGES variable to determine AUR updates
             if [ -n "$AUR_PACKAGES" ]; then
                 echo -e "${ORANGE}==>> Inspecting yay cache...${NC}"
                 if [ -d "$HOME/.cache/yay" ]; then
@@ -978,7 +1006,7 @@ update_system() {
             # Stop spinner
             stop_spinner
 
-            # Check command result
+            # Check command output
             if [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -q 'packages can be upgraded'; then
                 echo -e "${LIGHT_BLUE}==>> Updates have been found!${NC}"
                 echo -e "${ORANGE}==>> Now Witness MEOW POWA!!!!!${NC}"
@@ -1025,7 +1053,7 @@ prompt_update() {
 BTRFS_CHECKED=false
 BTRFS_SNAPSHOTS_SETUP=false
 
-# Path to the STATE_FILE
+# Path to the STATE_FILE.
 # It stores the value of the above flags
 STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 
@@ -1048,7 +1076,7 @@ load_state() {
             exit 1
         }
 
-        # Initialize state with default values
+        # Initialize state
         echo -e "${ORANGE}==>> State file not found. Creating new state file with default values.${NC}"
         BTRFS_CHECKED=false
         BTRFS_SNAPSHOTS_SETUP=false
@@ -1073,7 +1101,7 @@ save_state() {
 
 # Function to check if the filesystem is BTRFS and if snapshots are set up
 check_btrfs_snapshots() {
-    # Load the state from the STATE_FILE
+    # Load the state
     load_state
 
     # Check if the filesystem is BTRFS
@@ -1085,7 +1113,7 @@ check_btrfs_snapshots() {
         if [[ "$BTRFS_SNAPSHOTS_SETUP" == false ]]; then
             echo -e "${ORANGE}==>> Checking if BTRFS snapshots are set up...${NC}"
 
-            # Use btrfs command to check for existing snapshots
+            # Check for existing snapshots
             if sudo btrfs subvolume list / | grep -q "snapshot"; then
                 echo -e "${GREEN}  >> BTRFS snapshots are already set up.${NC}"
                 BTRFS_SNAPSHOTS_SETUP=true
@@ -1155,7 +1183,7 @@ check_btrfs_snapshots() {
         BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
     fi
 
-    # Save the state to STATE_FILE
+    # Save to STATE_FILE
     save_state
 }
 
@@ -1167,7 +1195,7 @@ main() {
     show_header
     greet_user
     cache_sudo_password
-    keep_sudo_alive &  # Start the sudo keeper in the background
+    keep_sudo_alive &  # Start sudo keeper in the background
     SUDO_KEEPER_PID=$! #
 	if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
         echo -e "${RED}!! Failed to start sudo keeper process. Continuing..${NC}"
