@@ -199,16 +199,19 @@ remove_db_lock() {
     sudo rm -fv /var/lib/pacman/db.lck
 }
 
-# Function to check for Pacman database errors
-check_pacman_db_error() {
+# Function to check for errors
+check_pacman_error() {
     local error_message="$1"
-    
-    # Look for database-related patterns
-    if [[ "$error_message" =~ (lock|locked) ]]; then
+
+    # Debugging: Log the error message
+    #echo -e "${LIGHT_BLUE}==>> DEBUG: Error message: $error_message${NC}"
+
+    # try to word bound
+    if [[ "$error_message" =~ \b(lock|locked)\b ]]; then
         # Remove db lock if it exists
         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
         if ! check_db_lock; then
-            remove_db_lock   
+            remove_db_lock
             # Retry pacman update after removing the lock
             echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
             if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
@@ -216,52 +219,52 @@ check_pacman_db_error() {
                 return 1  # If the command fails, exit the function
             fi
         else
-            echo -e "${GREEN}>> Pacman db lock not found.${NC}"
+            echo -e "${GREEN}  >> Pacman db lock not found.${NC}"
         fi
-    elif [[ "$error_message" =~ (database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error) ]]; then
+    elif [[ "$error_message" =~ \b(database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error)\b ]]; then
         echo -e "${ORANGE}==>> Potential Pacman database issue detected.${NC}"
         echo -e "${ORANGE}==>> Detected error type: ${NC}"
-        
+
         # Identify specific error type
-        if [[ "$error_message" =~ keyring\s+error ]]; then
+        if [[ "$error_message" =~ \bkeyring\s+error\b ]]; then
             echo -e "${RED}  >> Keyring error detected${NC}"
-        elif [[ "$error_message" =~ sync\s+error ]]; then
+        elif [[ "$error_message" =~ \bsync\s+error\b ]]; then
             echo -e "${RED}  >> Sync database error detected${NC}"
-        elif [[ "$error_message" =~ gnupg\s+error ]]; then
+        elif [[ "$error_message" =~ \bgnupg\s+error\b ]]; then
             echo -e "${RED}  >> GnuPG error detected${NC}"
         else
             echo -e "${RED}  >> General database error detected${NC}"
         fi
 
         read -rp "$(echo -e "${MAGENTA}Would you like to run the Pacman database repair script? (y/N)${NC} ")" repair_choice
-        
+
         # Convert input to lowercase
         repair_choice=$(echo "$repair_choice" | tr '[:upper:]' '[:lower:]')
-        
+
         if [[ "$repair_choice" == "y" || "$repair_choice" == "yes" ]]; then
             # Check if Ppm_db_fixer.sh exists in the same directory
             local script_dir
             script_dir=$(dirname "$(readlink -f "$0")")
             local db_fixer_script="${script_dir}/Ppm_db_fixer.sh"
-            
+
             if [[ ! -f "$db_fixer_script" ]]; then
                 echo -e "${ORANGE}==>> Ppm_db_fixer.sh not found. Attempting to download...${NC}"
-                
+
                 # Check if git is installed
                 if ! command -v git &> /dev/null; then
                     echo -e "${ORANGE}==>> Git was not found, but is needed. Attempting to install...${NC}"
                     sudo pacman -S --noconfirm git
                 fi
-                
+
                 # Clone the repository
                 echo -e "${LIGHT_BLUE}==>> Cloning Ppm_db_fixer from GitHub...${NC}"
                 if git clone https://github.com/Made2Flex/Ppm_db_fixer.git "$script_dir/Ppm_db_fixer"; then
                     db_fixer_script="$script_dir/Ppm_db_fixer/Ppm_db_fixer.sh"
-                    
+
                     # Make the script executable
                     echo -e "${BLUE}  >> Making Ppm_db_fixer.sh executable...${NC}"
                     chmod -Rfv +x "$db_fixer_script"
-                    
+
                     echo -e "${GREEN}==>> ✓Successfully downloaded Ppm_db_fixer.sh${NC}"
                 else
                     echo -e "${RED}!! Failed to download Ppm_db_fixer script.${NC}"
@@ -269,7 +272,7 @@ check_pacman_db_error() {
                     return 1
                 fi
             fi
-            
+
             # Run the database repair script
             if [[ -f "$db_fixer_script" ]]; then
                 echo -e "${LIGHT_BLUE}==>> Running Pacman database repair script...${NC}"
@@ -287,15 +290,15 @@ check_pacman_db_error() {
     elif [[ "$error_message" =~ "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu" ]]; then
         echo -e "${ORANGE}==>> Detected GRUB configuration warning.${NC}"
         echo -e "${ORANGE}==>> GRUB needs to be reconfigured to generate snapshot entries.${NC}"
-        
+
         read -rp "$(echo -e "${MAGENTA}Would you like to run 'grub-mkconfig' now? (y/N)${NC} ")" grub_choice
         grub_choice=$(echo "$grub_choice" | tr '[:upper:]' '[:lower:]')
-        
+
         if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
             echo -e "${LIGHT_BLUE}==>> Running 'grub-mkconfig' to generate configuration data...${NC}"
             if sudo grub-mkconfig; then
-                sleep 3 # consider legacy HDD
-                sync  # Force file system sync
+                sleep 2 # for legacy HDD
+                sync
                 echo -e "${LIGHT_BLUE}==>> Writing GRUB configuration to /boot/grub/grub.cfg...${NC}"
                 if sudo grub-mkconfig -o /boot/grub/grub.cfg; then
                     echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
@@ -314,7 +317,7 @@ check_pacman_db_error() {
     return 0
 }
 
-# Function to check for errors and pass them to check_pacman_db_error
+# Function to check for errors and pass them to check_pacman_error()
 run_command() {
     local command="$1"
     local output
@@ -330,8 +333,8 @@ run_command() {
 
     local exit_code=${PIPESTATUS[0]}
 
-    # Pass output to check_pacman_db_error
-    check_pacman_db_error "$output"
+    # Pass output to check_pacman_error
+    check_pacman_error "$output"
 
     if [[ $exit_code -ne 0 ]]; then
         echo -e "${RED}Command failed with exit code $exit_code:${NC}"
@@ -933,7 +936,7 @@ stop_spinner() {
 
     sleep 0.2
 
-    # Kill the spinner process if it exists
+    # Kill the spinner process
     if [ -n "$spinner_pid" ]; then
         kill "$spinner_pid" 2>/dev/null
         wait "$spinner_pid" 2>/dev/null
@@ -994,7 +997,7 @@ update_system() {
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking for package updates.${NC}"
 
-            # Start spinner in background
+            # Start spinner
             start_spinner_spinner
 
             # Capture command output and exit status
