@@ -296,17 +296,10 @@ check_pacman_error() {
 
         if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
             echo -e "${LIGHT_BLUE}==>> Running 'grub-mkconfig' to generate configuration data...${NC}"
-            if sudo grub-mkconfig; then
-                sleep 2 # for legacy HDD
-                sync
-                echo -e "${LIGHT_BLUE}==>> Writing GRUB configuration to /boot/grub/grub.cfg...${NC}"
-                if sudo grub-mkconfig -o /boot/grub/grub.cfg; then
-                    echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
-                else
-                    echo -e "${RED}!! Failed to write GRUB configuration file.${NC}"
-                fi
+            if sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg; then
+                echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
             else
-                echo -e "${RED}!! Failed to generate GRUB configuration data.${NC}"
+                echo -e "${RED}!! Failed to update GRUB configuration.${NC}"
             fi
         else
             echo -e "${ORANGE}==>>${NC} ${RED}!!! WARNING:${NC} ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!.${NC}"
