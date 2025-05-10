@@ -277,7 +277,7 @@ check_pacman_error() {
             if [[ -f "$db_fixer_script" ]]; then
                 echo -e "${LIGHT_BLUE}==>> Running Pacman database repair script...${NC}"
                 sudo bash "$db_fixer_script"
-                return $?  # Return the exit status of the repair script
+                return $?  # Return exit status
             else
                 echo -e "${RED}!! Pacman database repair script not found.${NC}"
                 echo -e "${ORANGE}Please download Ppm_db_fixer.sh from: https://github.com/Made2Flex/Ppm_db_fixer and run it manually.${NC}"
@@ -296,10 +296,26 @@ check_pacman_error() {
 
         if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
             echo -e "${LIGHT_BLUE}==>> Running 'grub-mkconfig' to generate configuration data...${NC}"
-            if sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg; then
-                echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
+            output=$(sudo grub-mkconfig 2>&1)
+            echo "$output"
+            if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
+                echo -e "${ORANGE}==>> Detected GRUB warning. Rerunning 'grub-mkconfig'...${NC}"
+                output=$(sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1)
+                echo "$output"
+                if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
+                    echo -e "${RED}!! GRUB warning persists after second attempt.${NC}"
+                    echo -e "${ORANGE}==>>${ORANGE}Manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}rebooting the system.${NC}"
+                    echo -e "${ORANGE}==>> Would you like to run it at script exit? (y/N)${NC}"
+                    read -rp "" exit_choice
+                    exit_choice=$(echo "$exit_choice" | tr '[:upper:]' '[:lower:]')
+                    if [[ "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
+                        trap 'echo -e "${LIGHT_BLUE}==>> Running grub-mkconfig at script exit...${NC}"; sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg' EXIT
+                    fi
+                else
+                    echo -e "${GREEN}==>> GRUB configuration updated successfully after second attempt!${NC}"
+                fi
             else
-                echo -e "${RED}!! Failed to update GRUB configuration.${NC}"
+                echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
             fi
         else
             echo -e "${ORANGE}==>>${NC} ${RED}!!! WARNING:${NC} ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!.${NC}"
