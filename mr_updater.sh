@@ -8,7 +8,7 @@ show_version() {
     exit 0
 }
 
-# Function to display help information
+# Function to display help
 show_help() {
     echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
     echo
@@ -64,7 +64,7 @@ LIGHT_BLUE='\033[1;36m'
 WHITE='\033[0;37m'
 NC='\033[0m' # No color
 
-# ASCII Header
+# Header
 header() {
     cat << 'EOF'
 $$\   $$\                 $$\             $$\
@@ -132,13 +132,14 @@ keep_sudo_alive() {
     done
 }
 
+# We will call it on exit
 clean_sudo() {
     kill "$SUDO_KEEPER_PID"
 
     unset SUDO_PASSWORD
 }
 
-dynamic_me() {
+author() {
     local message="$1"
     #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
@@ -185,7 +186,7 @@ dynamic_color() {
 # Function to check if pacman db is locked
 check_db_lock() {
     if [[ -f /var/lib/pacman/db.lck ]]; then
-        echo -e "${RED}  >> Pacman database is locked.${NC}"
+        echo -e "${RED}==>> Pacman database is locked.${NC}"
         return 1
     fi
     return 0
@@ -197,6 +198,25 @@ remove_db_lock() {
     sudo rm -fv /var/lib/pacman/db.lck
 }
 
+rmdblck() {
+
+    if ! check_db_lock; then
+            if ! remove_db_lock; then
+                echo -e "${RED}!! Failed to remove pacman db lock.${NC}"
+                echo -e "${ORANGE}==>> Checking for processes holding the lock...${NC}"
+                if lsof /var/lib/pacman/db.lck; then
+                    echo -e "${RED}!! Processes holding the lock found. Please terminate them and try again.${NC}"
+                    return 1
+                else
+                    echo -e "${GREEN}==>> No processes holding the lock found.${NC}"
+                fi
+            else
+                echo -e "${GREEN}==>> Pacman db lock removed successfully.${NC}"
+            fi
+    fi
+
+}
+
 # Function to check for errors
 check_pacman_error() {
     local error_message="$1"
@@ -205,20 +225,32 @@ check_pacman_error() {
     #echo -e "${LIGHT_BLUE}==>> DEBUG: Error message: $error_message${NC}"
 
     # try word bounding
-    if [[ "$error_message" =~ \b(lock|locked)\b ]]; then
-        # Remove db lock if it exists
-        echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
-        if ! check_db_lock; then
-            remove_db_lock
-            # Retry pacman update after removing the lock
-            echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
-            if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
-                echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
-                return 1
-            fi
-        else
-            echo -e "${GREEN}  >> Pacman db lock not found.${NC}"
-        fi
+     if [[ "$error_message" =~ \b(lock|locked)\b ]]; then
+         # Remove db lock if it exists
+         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
+         if ! check_db_lock; then
+             echo -e "${ORANGE}==>> Attempting to remove pacman db lock...${NC}"
+            if ! remove_db_lock; then
+                 echo -e "${RED}!! Failed to remove pacman db lock.${NC}"
+                 echo -e "${ORANGE}==>> Checking for processes holding the lock...${NC}"
+                 if lsof /var/lib/pacman/db.lck; then
+                     echo -e "${RED}!! Processes holding the lock found. Please terminate them and try again.${NC}"
+                     return 1
+                 else
+                     echo -e "${GREEN}  >> No processes holding the lock found.${NC}"
+                 fi
+             else
+                 echo -e "${GREEN}  >> Pacman db lock removed successfully.${NC}"
+             fi
+             # Retry pacman update after removing the lock
+             echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
+             if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
+                 echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
+                 return 1
+             fi
+         else
+             echo -e "${GREEN}  >> Pacman db lock not found.${NC}"
+         fi
     elif [[ "$error_message" =~ \b(database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error)\b ]]; then
         echo -e "${ORANGE}==>> Potential Pacman database issue detected.${NC}"
         echo -e "${ORANGE}==>> Detected error type: ${NC}"
@@ -292,7 +324,7 @@ check_pacman_error() {
         read -rp "$(echo -e "${MAGENTA}Would you like to run 'grub-mkconfig' now? (y/N)${NC} ")" grub_choice
         grub_choice=$(echo "$grub_choice" | tr '[:upper:]' '[:lower:]')
 
-        if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
+        if [[ -z "$grub_choice" || "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
             echo -e "${LIGHT_BLUE}==>> Generating configuration data...${NC}"
             output=$(sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1)
             echo "$output"
@@ -302,9 +334,9 @@ check_pacman_error() {
                 if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
                     echo -e "${RED}!! GRUB warning persists after second attempt.${NC}"
                     echo -e "${ORANGE}==>> ${ORANGE}Manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}rebooting the system.${NC}"
-        read -rp "$(echo -e "${ORANGE}Would you like to run it at script exit? (y/N)${NC} ")" exit_choice
+                    read -rp "$(echo -e "${ORANGE}Would you like to run it at script exit? (y/N)${NC} ")" exit_choice
                     exit_choice=$(echo "$exit_choice" | tr '[:upper:]' '[:lower:]')
-                    if [[ "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
+                    if [[ -z "$exit_choice" || "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
                         echo -e "${LIGHT_BLUE}==>> Running grub-mkconfig at script exit...${NC}"
                         trap 'sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg' EXIT INT TERM
                     fi
@@ -315,7 +347,7 @@ check_pacman_error() {
                 echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
             fi
         else
-            echo -e "${ORANGE}==>>${NC} ${RED}!!! WARNING:${NC} ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!.${NC}"
+            echo -e "${ORANGE}==>>${NC} dynamic_color "!!! WARNING:" ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!${NC}"
             echo -e "${ORANGE}==>> Skipping GRUB configuration update.${NC}"
         fi
     fi
@@ -401,7 +433,7 @@ check_terminal() {
 show_header() {
     echo -e "${BLUE}"
     header
-    dynamic_me "Qnk6IE1hZGUyRmxleA=="
+    author "Qnk6IE1hZGUyRmxleA=="
     echo -e "${NC}"
 }
 
@@ -589,7 +621,8 @@ check_dependencies() {
                                 echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
                                 echo -e "${ORANGE}  >> Output:${NC}"
                                 echo "$install_output"
-                                echo -e "${ORANGE}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                                dynamic_color "Manual intervention Required!"
+                                echo -e "${ORANGE}  >> Please use pacman -S to install it.${NC}"
                             fi
                             break
                         fi
@@ -649,8 +682,8 @@ check_dependencies() {
 
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
-            echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color "Try to install them manually, then run the script again."
+            dynamic_color "Missing dependencies. Cannot proceed."
+            echo -e "${ORANGE} ==>>  Try to install them manually, then run the script again.${NC}"
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
@@ -857,7 +890,7 @@ check_mirrors() {
 
                     echo -e "${GREEN}==>> Mirrors have been refreshed.${NC}"
                 else
-                    echo -e "${GREEN} ->> Mirror list is fresh. moving on..${NC}"
+                    echo -e "${GREEN}  >> Mirror list is fresh. moving on..${NC}"
                 fi
             else
                 echo -e "${RED}!!! Mirror-list file not found: $mirror_sources_file${NC}"
@@ -1208,6 +1241,7 @@ main() {
     create_aur_pkg_list
     check_mirrors
     check_btrfs_snapshots
+    rmdblck
     prompt_update
     trap 'clean_sudo' EXIT INT TERM
 }
