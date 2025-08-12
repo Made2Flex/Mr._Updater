@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.1.5-1"
+SCRIPT_VERSION="1.1.6"
 SCRIPT_NAME=$(basename "$0")
 
 show_version() {
@@ -8,11 +8,11 @@ show_version() {
     exit 0
 }
 
-# Function to display help
+# Function to display help information
 show_help() {
     echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
     echo
-    echo -e "${MAGENTA}This script is a system updater for Linux systems.${NC}"
+    echo -e "${LIGHT_BLUE}This script is a system updater for Linux systems.${NC}"
     echo
     echo -e "${LIGHT_BLUE}Options:${NC}"
     echo "  -h, --help     Display this help message."
@@ -20,13 +20,13 @@ show_help() {
     echo
     echo -e "${LIGHT_BLUE}This script will:${NC}"
     echo -e "${GREEN}. Perform system updates${NC}"
-    echo -e "${GREEN}. Handle BTRFS snapshot setup and management${NC}"
+    echo -e "${GREEN}. Handle BTRFS snapshot setup${NC}"
     echo -e "${GREEN}. Manage package dependencies and installations${NC}"
-    echo -e "${GREEN}. Create system backup and package lists${NC}"
+    echo -e "${GREEN}. Create system backup via Package list${NC}"
     echo
     echo -e "${BLUE}. Supports multiple Linux distributions (Arch based and Debian based.)${NC}"
     echo
-    echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
+     echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
     echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
     exit 0
 }
@@ -52,7 +52,8 @@ parser() {
 
 set -uo pipefail
 # -e: exit on error
-# -u: treat unset variables as an error
+# -u: treat unset variables as error
+# -o pipefail: capture pipeline errors
 
 # Color definitions
 GREEN='\033[1;32m'
@@ -64,8 +65,8 @@ LIGHT_BLUE='\033[1;36m'
 WHITE='\033[0;37m'
 NC='\033[0m' # No color
 
-# Header
-header() {
+# ASCII Header
+ascii_header() {
     cat << 'EOF'
 $$\   $$\                 $$\             $$\
 $$ |  $$ |                $$ |            $$ |
@@ -93,7 +94,7 @@ cache_sudo_password() {
             exit 1
         fi
         echo
-        
+
         # Verify the password
         if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
             export SUDO_PASSWORD
@@ -132,14 +133,13 @@ keep_sudo_alive() {
     done
 }
 
-# We will call it on exit
 clean_sudo() {
     kill "$SUDO_KEEPER_PID"
 
     unset SUDO_PASSWORD
 }
 
-author() {
+dynamic_me() {
     local message="$1"
     #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
@@ -152,6 +152,7 @@ author() {
             # Cycle through colors
             color=${colors[$((i % ${#colors[@]}))]}
 
+            # Use \r to return to start of line, update with new color
             printf "\r${color}                                            ${message}${NC}"
 
             sleep "$delay"
@@ -168,7 +169,7 @@ dynamic_color() {
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
     local NC="\033[0m"
     local delay=0.1
-    local iterations=${2:-30}  # iterations
+    local iterations=${2:-30}  # Default 30 iterations, but allow customization
 
     {
         for ((i=1; i<=iterations; i++)); do
@@ -183,79 +184,175 @@ dynamic_color() {
     } >&2
 }
 
+check_pacman_processes() {
+    if pgrep -x "pacman" > /dev/null; then
+        echo -e "${RED}==>> Pacman process is running. Waiting for it to complete...${NC}"
+        while pgrep -x "pacman" > /dev/null; do
+            sleep 2
+        done
+        echo -e "${GREEN}==>> Pacman process completed${NC}"
+    fi
+}
+
 # Function to check if pacman db is locked
 check_db_lock() {
     if [[ -f /var/lib/pacman/db.lck ]]; then
         echo -e "${RED}==>> Pacman database is locked.${NC}"
+        echo -e "${LIGHT_BLUE}  >> Removing pacman db lock...${NC}"
+
+        if sudo rm -fv /var/lib/pacman/db.lck; then
+            echo -e "${GREEN}==>> ✓ Pacman database lock removed successfully${NC}"
+            sleep 1
+        else
+            echo -e "${RED}  !! Failed to remove pacman database lock${NC}"
+            dynamic_color "Manual intervention is required"
+            return 1
+        fi
+    fi
+}
+
+# Function to parse and handle certain warnings like permission differences
+parse_pacman_warnings() {
+    local output="$1"
+    local warnings_found=false
+
+    # Parse .pacnew file warnings
+    if echo "$output" | grep -q "installed as.*\.pacnew"; then
+        echo -e "${ORANGE}==>> Detected .pacnew configuration files:${NC}"
+        warnings_found=true
+
+        # Extract and display .pacnew files
+        echo "$output" | grep "installed as.*\.pacnew" | while read -r line; do
+            local file_path=$(echo "$line" | sed -n "s/.*warning: \(.*\) installed as.*\.pacnew.*/\1/p")
+            local pacnew_path=$(echo "$line" | sed -n "s/.*installed as \(.*\)\.pacnew.*/\1.pacnew/p")
+
+            if [[ -n "$file_path" && -n "$pacnew_path" ]]; then
+                echo -e "${LIGHT_BLUE}  >> Config file: $file_path${NC}"
+                echo -e "${LIGHT_BLUE}  >> New version: $pacnew_path${NC}"
+
+                # Check if the original file exists
+                if [[ -f "$file_path" ]]; then
+                    echo -e "${GREEN}    ✓ Original file exists${NC}"
+
+                    # Offer to show differences
+                    read -rp "$(echo -e "${MAGENTA}Would you like to see the differences? (y/N)${NC} ")" show_diff
+                    show_diff=$(echo "$show_diff" | tr '[:upper:]' '[:lower:]')
+
+                    if [[ "$show_diff" == "y" || "$show_diff" == "yes" ]]; then
+                        if command -v diff &> /dev/null; then
+                            echo -e "${LIGHT_BLUE}  >> Differences between files:${NC}"
+                            diff -u "$file_path" "$pacnew_path" | head -20
+                            echo -e "${ORANGE}  >> (Showing first 20 lines. Use 'diff $file_path $pacnew_path' for full comparison)${NC}"
+                        else
+                            echo -e "${RED}  !! diff command not available${NC}"
+                        fi
+                    fi
+
+                    # Offer to merge files
+                    read -rp "$(echo -e "${MAGENTA}Would you like to merge the new configuration? (y/N)${NC} ")" merge_choice
+                    merge_choice=$(echo "$merge_choice" | tr '[:upper:]' '[:lower:]')
+
+                    if [[ "$merge_choice" == "y" || "$merge_choice" == "yes" ]]; then
+                        echo -e "${LIGHT_BLUE}  >> Backing up original file...${NC}"
+                        sudo cp "$file_path" "${file_path}.backup.$(date +%Y%m%d_%H%M%S)"
+
+                        echo -e "${LIGHT_BLUE}  >> Merging configuration...${NC}"
+                        if sudo cp "$pacnew_path" "$file_path"; then
+                            echo -e "${GREEN}    ✓ Configuration merged successfully${NC}"
+                            echo -e "${ORANGE}  >> Original backup saved as ${file_path}.backup.$(date +%Y%m%d_%H%M%S)${NC}"
+                        else
+                            echo -e "${RED}    !! Failed to merge configuration${NC}"
+                        fi
+                    else
+                        echo -e "${ORANGE}  >> Skipping merge. Manual review recommended.${NC}"
+                        echo -e "${LIGHT_BLUE}  >> You can manually merge using:${NC}"
+                        echo -e "${MAGENTA}     sudo cp $pacnew_path $file_path${NC}"
+                    fi
+                else
+                    echo -e "${RED}    !! Original file not found${NC}"
+                    echo -e "${ORANGE}  >> This might be a new configuration file${NC}"
+                fi
+                echo
+            fi
+        done
+    fi
+
+    # Parse permission discrepancy warnings
+    if echo "$output" | grep -q "directory permissions differ"; then
+        echo -e "${ORANGE}==>> Detected permission discrepancies:${NC}"
+        warnings_found=true
+
+        # Extract and display permission issues
+        echo "$output" | grep "directory permissions differ" | while read -r line; do
+            local dir_path=$(echo "$line" | sed -n "s/.*directory permissions differ on \(.*\)\/.*/\1/p")
+            local fs_perms=$(echo "$line" | sed -n "s/.*filesystem: \([0-9]*\).*/\1/p")
+            local pkg_perms=$(echo "$line" | sed -n "s/.*package: \([0-9]*\).*/\1/p")
+
+            if [[ -n "$dir_path" && -n "$fs_perms" && -n "$pkg_perms" ]]; then
+                echo -e "${LIGHT_BLUE}  >> Directory: $dir_path${NC}"
+                echo -e "${LIGHT_BLUE}  >> Filesystem permissions: $fs_perms${NC}"
+                echo -e "${LIGHT_BLUE}  >> Package permissions: $pkg_perms${NC}"
+
+                # Check if directory exists
+                if [[ -d "$dir_path" ]]; then
+                    echo -e "${GREEN}    ✓ Directory exists${NC}"
+
+                    # Show current permissions
+                    local current_perms=$(stat -c %a "$dir_path" 2>/dev/null)
+                    echo -e "${LIGHT_BLUE}  >> Current permissions: $current_perms${NC}"
+
+                    # Offer to fix permissions
+                    read -rp "$(echo -e "${MAGENTA}Would you like to fix the permissions? (y/N)${NC} ")" fix_perms
+                    fix_perms=$(echo "$fix_perms" | tr '[:upper:]' '[:lower:]')
+
+                    if [[ "$fix_perms" == "y" || "$fix_perms" == "yes" ]]; then
+                        echo -e "${LIGHT_BLUE}  >> Fixing permissions...${NC}"
+                        if sudo chmod "$pkg_perms" "$dir_path"; then
+                            echo -e "${GREEN}    ✓ Permissions fixed successfully${NC}"
+                            echo -e "${LIGHT_BLUE}  >> New permissions: $(stat -c %a "$dir_path")${NC}"
+                        else
+                            echo -e "${RED}    !! Failed to fix permissions${NC}"
+                        fi
+                    else
+                        echo -e "${ORANGE}  >> Skipping permission fix. Manual review recommended.${NC}"
+                        echo -e "${LIGHT_BLUE}  >> You can manually fix using:${NC}"
+                        echo -e "${MAGENTA}     sudo chmod $pkg_perms $dir_path${NC}"
+                    fi
+                else
+                    echo -e "${RED}    !! Directory not found${NC}"
+                fi
+                echo
+            fi
+        done
+    fi
+
+    # Return true if warnings were found
+    if [[ "$warnings_found" == true ]]; then
+        return 0
+    else
         return 1
     fi
-    return 0
 }
 
-# Function to remove pacman db lock
-remove_db_lock() {
-    echo -e "${LIGHT_BLUE}==>> Removing pacman db lock...${NC}"
-    sudo rm -fv /var/lib/pacman/db.lck
-}
-
-rmdblck() {
-
-    if ! check_db_lock; then
-            if ! remove_db_lock; then
-                echo -e "${RED}!! Failed to remove pacman db lock.${NC}"
-                echo -e "${ORANGE}==>> Checking for processes holding the lock...${NC}"
-                if lsof /var/lib/pacman/db.lck; then
-                    echo -e "${RED}!! Processes holding the lock found. Please terminate them and try again.${NC}"
-                    return 1
-                else
-                    echo -e "${GREEN}==>> No processes holding the lock found.${NC}"
-                fi
-            else
-                echo -e "${GREEN}==>> Pacman db lock removed successfully.${NC}"
-            fi
-    fi
-
-}
 
 # Function to check for errors
 check_pacman_error() {
     local error_message="$1"
 
-    # Debug:
+    # Debugging: Log the error message
     #echo -e "${LIGHT_BLUE}==>> DEBUG: Error message: $error_message${NC}"
 
-    # try word bounding
-     if [[ "$error_message" =~ \b(lock|locked)\b ]]; then
-         # Remove db lock if it exists
-         echo -e "${LIGHT_BLUE}==>> Checking for pacman db lock...${NC}"
-         if ! check_db_lock; then
-             echo -e "${ORANGE}==>> Attempting to remove pacman db lock...${NC}"
-            if ! remove_db_lock; then
-                 echo -e "${RED}!! Failed to remove pacman db lock.${NC}"
-                 echo -e "${ORANGE}==>> Checking for processes holding the lock...${NC}"
-                 if lsof /var/lib/pacman/db.lck; then
-                     echo -e "${RED}!! Processes holding the lock found. Please terminate them and try again.${NC}"
-                     return 1
-                 else
-                     echo -e "${GREEN}  >> No processes holding the lock found.${NC}"
-                 fi
-             else
-                 echo -e "${GREEN}  >> Pacman db lock removed successfully.${NC}"
-             fi
-             # Retry pacman update after removing the lock
-             echo -e "${ORANGE}==>> Retrying pacman update...${NC}"
-             if ! sudo pacman -Syyuu --noconfirm --needed --color=auto; then
-                 echo -e "${RED}!!! Failed to update pacman after removing lock.${NC}"
-                 return 1
-             fi
-         else
-             echo -e "${GREEN}  >> Pacman db lock not found.${NC}"
-         fi
-    elif [[ "$error_message" =~ \b(database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error)\b ]]; then
+    # check for warnings that need special handling
+    if parse_pacman_warnings "$error_message"; then
+        echo -e "${GREEN}==>> Warning handling completed.${NC}"
+        echo
+    fi
+
+    # try to word bound
+    if [[ "$error_message" =~ \b(database\s+error|corrupt|invalid|broken|keyring\s+error|sync\s+error|gnupg\s+error)\b ]]; then
         echo -e "${ORANGE}==>> Potential Pacman database issue detected.${NC}"
         echo -e "${ORANGE}==>> Detected error type: ${NC}"
 
-        # error types
         if [[ "$error_message" =~ \bkeyring\s+error\b ]]; then
             echo -e "${RED}  >> Keyring error detected${NC}"
         elif [[ "$error_message" =~ \bsync\s+error\b ]]; then
@@ -303,7 +400,7 @@ check_pacman_error() {
                 fi
             fi
 
-            # Run repair script
+            # Run the database repair script
             if [[ -f "$db_fixer_script" ]]; then
                 echo -e "${LIGHT_BLUE}==>> Running Pacman database repair script...${NC}"
                 sudo bash "$db_fixer_script"
@@ -324,21 +421,22 @@ check_pacman_error() {
         read -rp "$(echo -e "${MAGENTA}Would you like to run 'grub-mkconfig' now? (y/N)${NC} ")" grub_choice
         grub_choice=$(echo "$grub_choice" | tr '[:upper:]' '[:lower:]')
 
-        if [[ -z "$grub_choice" || "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
-            echo -e "${LIGHT_BLUE}==>> Generating configuration data...${NC}"
-            output=$(sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1)
+        if [[ "$grub_choice" == "y" || "$grub_choice" == "yes" ]]; then
+            echo -e "${LIGHT_BLUE}==>> Running 'grub-mkconfig' to generate configuration data...${NC}"
+            output=$(sudo grub-mkconfig 2>&1)
             echo "$output"
             if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
+                echo -e "${ORANGE}==>> Detected GRUB warning. Rerunning 'grub-mkconfig'...${NC}"
                 output=$(sudo grub-mkconfig -o /boot/grub/grub.cfg 2>&1)
                 echo "$output"
                 if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
                     echo -e "${RED}!! GRUB warning persists after second attempt.${NC}"
-                    echo -e "${ORANGE}==>> ${ORANGE}Manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}rebooting the system.${NC}"
-                    read -rp "$(echo -e "${ORANGE}Would you like to run it at script exit? (y/N)${NC} ")" exit_choice
+                    echo -e "${ORANGE}==>>${ORANGE}Manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}rebooting the system.${NC}"
+                    echo -e "${ORANGE}==>> Would you like to run it at script exit? (y/N)${NC}"
+                    read -rp "" exit_choice
                     exit_choice=$(echo "$exit_choice" | tr '[:upper:]' '[:lower:]')
-                    if [[ -z "$exit_choice" || "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
-                        echo -e "${LIGHT_BLUE}==>> Running grub-mkconfig at script exit...${NC}"
-                        trap 'sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg' EXIT INT TERM
+                    if [[ "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
+                        trap 'echo -e "${LIGHT_BLUE}==>> Running grub-mkconfig at script exit...${NC}"; sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg' EXIT
                     fi
                 else
                     echo -e "${GREEN}==>> GRUB configuration updated successfully after second attempt!${NC}"
@@ -347,7 +445,7 @@ check_pacman_error() {
                 echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
             fi
         else
-            echo -e "${ORANGE}==>>${NC} dynamic_color "!!! WARNING:" ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!${NC}"
+            echo -e "${ORANGE}==>>${NC} ${RED}!!! WARNING:${NC} ${ORANGE}You${NC} ${RED}MUST${NC} ${ORANGE}manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${RED}BEFORE${NC} ${ORANGE}rebooting the system!.${NC}"
             echo -e "${ORANGE}==>> Skipping GRUB configuration update.${NC}"
         fi
     fi
@@ -388,11 +486,11 @@ get_script_path() {
 }
 
 check_terminal() {
-    # Check terminal
+    # Check if stdin is a terminal
     if [ ! -t 0 ]; then
-        # Silence GTK warnings
+        # Silence GTK warnings by redirecting stderr to 2>/dev/null
         local zenity_command="zenity --question --title='Terminal Required' --text='This program must be run in a terminal. Do you want to open a terminal now?' 2>/dev/null"
-        
+
         if eval "$zenity_command"; then
             local script_path
             script_path=$(get_script_path)
@@ -432,8 +530,8 @@ check_terminal() {
 #show header
 show_header() {
     echo -e "${BLUE}"
-    header
-    author "Qnk6IE1hZGUyRmxleA=="
+    ascii_header
+    dynamic_me "Qnk6IE1hZGUyRmxleA=="
     echo -e "${NC}"
 }
 
@@ -448,22 +546,22 @@ get_system_language() {
     # Define translations
     case "$language_code" in
         "es")
-            # Spanish
+            # Spanish translations
             GREET_MESSAGE="¡Hola, %s"
             UPDATE_PROMPT="¿Quieres actualizar el systema ahora? (Sí/No): "
             ;;
         "fr")
-            # French
+            # French translations
             GREET_MESSAGE="Bonjour, %s"
             UPDATE_PROMPT="Voulez-vous mettre à jour maintenant ? (Oui/Non) : "
             ;;
         "de")
-            # German
+            # German translations
             GREET_MESSAGE="Hallo, %s"
             UPDATE_PROMPT="Möchten Sie jetzt aktualisieren? (Ja/Nein): "
             ;;
         "ja")
-            # Japanese
+            # Japanese translations
             GREET_MESSAGE="%s、こんにちは"
             UPDATE_PROMPT="今すぐ更新しますか？ (はい/いいえ): "
             ;;
@@ -480,22 +578,24 @@ greet_user() {
     local username
     username=$(whoami)
 
-    # Get language
+    # Get language translations
     get_system_language
 
-    # Use appropriate greeting
+    # Use the appropriate greeting
     printf "${GREEN}$GREET_MESSAGE${NC}\n" "$username"
 }
 
 # Function to detect distribution
 detect_distribution() {
+    # Default values
     DISTRO=""
     DISTRO_ID=""
     PACKAGE_MANAGER=""
     MIRROR_REFRESH_CMD=""
 
-    if [ -f /etc/os-release ]; then
-        # Source os-release file to get distribution information
+    # Check for distribution
+    if [[ -f /etc/os-release ]]; then
+        # Source the os-release file to get distribution information
         source /etc/os-release
 
         # Normalize ID to lowercase
@@ -536,7 +636,7 @@ detect_distribution() {
     fi
 }
 
-# Function to warn about manual installation
+# Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
     dynamic_color "Manual intervention required to install deps."
@@ -577,7 +677,7 @@ check_dependencies() {
             ;;
     esac
 
-   # Check
+   # Check for missing dependencies
     for cmd in "${deps[@]}"; do
         if [[ "$cmd" == "pacman-contrib" ]]; then
             if ! pacman -Q "$cmd" &>/dev/null; then
@@ -621,8 +721,7 @@ check_dependencies() {
                                 echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
                                 echo -e "${ORANGE}  >> Output:${NC}"
                                 echo "$install_output"
-                                dynamic_color "Manual intervention Required!"
-                                echo -e "${ORANGE}  >> Please use pacman -S to install it.${NC}"
+                                echo -e "${ORANGE}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
                             fi
                             break
                         fi
@@ -682,8 +781,8 @@ check_dependencies() {
 
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
-            dynamic_color "Missing dependencies. Cannot proceed."
-            echo -e "${ORANGE} ==>>  Try to install them manually, then run the script again.${NC}"
+            echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
+            dynamic_color "Try to install them manually, then run the script again."
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
@@ -694,7 +793,9 @@ check_dependencies() {
 # Function to strip log from colors and special characters
 strip_log() {
     local input="$1"
+    # Remove ANSI color codes
     input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
+    # Remove special characters
     input=$(echo "$input" | tr -cd '\11\12\15\40-\176')
     echo "$input"
 }
@@ -712,13 +813,13 @@ create_timestamped_log() {
     echo "$timestamped_log_file"
 }
 
-# Function to create pkglist bk
+# Function to create pkglist
 create_pkg_list() {
     local log_file=""
     local pkg_list_file=""
     local backup_dir=""
 
-    # Detect distribution paths
+    # Detect distribution-specific paths
     case "$DISTRO_ID" in
         "arch"|"manjaro"|"endeavouros")
             backup_dir="$HOME/bk/arch"
@@ -771,7 +872,7 @@ create_pkg_list() {
                 if command -v nala &> /dev/null; then
                     local explicit_pkg_file="$backup_dir/debian-explicit-pkgs.txt"
                     sudo nala history --installed > "$explicit_pkg_file"
-                    echo -e "${BLUE}  >> Nala's installed history list created at $explicit_pkg_file${NC}"
+                    echo -e "${BLUE}  >> Explicit package list created at $explicit_pkg_file${NC}"
                 fi
             else
                 local timestamped_log=$(create_timestamped_log "$log_file")
@@ -793,7 +894,7 @@ create_aur_pkg_list() {
             local log_file="$HOME/bk/arch/aur-pkglst.log"
             local aur_pkg_list_file="$HOME/bk/arch/aur-pkglst.txt"
 
-            # Save list to file
+            # Capture AUR packages and save to it file
             error_output=$(sudo pacman -Qmq 2>&1)
             if [ $? -eq 0 ]; then
                 AUR_PACKAGES="$error_output"
@@ -869,16 +970,16 @@ check_mirrors() {
                         if command -v eos-rankmirrors &> /dev/null; then
                             echo -e "${LIGHT_BLUE}  >> Running eos-rankmirrors...${NC}"
                             if eos-rankmirrors; then
-                                echo -e "${GREEN}-->> eos-rankmirrors completed ✓successfully${NC}"
+                                echo -e "${GREEN}==>> eos-rankmirrors completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! eos-rankmirrors failed${NC}"
                             fi
                         fi
 
                         if command -v reflector &> /dev/null; then
-                            echo -e "${LIGHT_BLUE}-->> Running reflector...${NC}"
+                            echo -e "${LIGHT_BLUE}==>> Running reflector...${NC}"
                             if sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist; then
-                                echo -e "${GREEN} ->> reflector completed ✓successfully${NC}"
+                                echo -e "${GREEN}==>> reflector completed ✓successfully${NC}"
                             else
                                 echo -e "${RED}!! reflector failed${NC}"
                             fi
@@ -939,6 +1040,7 @@ start_spinner_spinner() {
     local colors=("$GREEN" "$ORANGE" "$RED" "$BLUE" "$MAGENTA" "$LIGHT_BLUE")
     local delay=0.1
 
+    # Only one spinner runs at a time
     if [ "$spinner_running" = true ]; then
         echo -e "${RED}Warning: Spinner is already running.${NC}" >&2
         return 1
@@ -946,13 +1048,13 @@ start_spinner_spinner() {
 
     spinner_running=true
 
-    # Start spinner in background
+    # Start spinner
     (
         while $spinner_running; do
             for spinner in "${spinners[@]}"; do
                 for color in "${colors[@]}"; do
                     if ! $spinner_running; then
-                        exit 0  # exit background process
+                        exit 0  # exit the background process
                     fi
                     printf "\r${color}%s Processing...${NC}" "$spinner" >&2
                     fflush
@@ -1021,7 +1123,7 @@ update_system() {
             fi
 
             aur_updates=$(yay -Qua 2>/dev/null)
-            
+
             if [[ -n "$output" || -n "$aur_updates" ]]; then
                 echo -e "${ORANGE}==>> System has been updated.${NC}"
             else
@@ -1031,6 +1133,7 @@ update_system() {
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking for package updates.${NC}"
 
+            # Start spinner
             start_spinner_spinner
 
             # Capture command output and exit status
@@ -1039,6 +1142,7 @@ update_system() {
             update_output=$(sudo nala update)
             exit_status=$?
 
+            # Stop spinner
             stop_spinner
 
             # Check command output
@@ -1088,8 +1192,8 @@ prompt_update() {
 BTRFS_CHECKED=false
 BTRFS_SNAPSHOTS_SETUP=false
 
-# Path to the STATE_FILE.
-# Stores the value of the above flags
+# Path to the STATE_FILE
+# It stores the value of the above flags
 STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.txt"
 
 # Function to load the state from the STATE_FILE
@@ -1134,7 +1238,7 @@ save_state() {
     fi
 }
 
-# Function to check if filesystem is BTRFS and if snapshots are set up
+# Function to check if the filesystem is BTRFS and if snapshots are set up
 check_btrfs_snapshots() {
     # Load the state
     load_state
@@ -1189,7 +1293,7 @@ check_btrfs_snapshots() {
                         fi
 
                         # Clean up
-                        echo -e "${ORANGE}==>> Removing previously created directory..."
+                        echo -set indicatore "${ORANGE}==>> Removing previously created directory..."
                         rm -rfv "$script_dir/setupsnapshots"
 
                         # Prompt to remove git
@@ -1199,7 +1303,7 @@ check_btrfs_snapshots() {
 
                             if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
                                 sudo pacman -Rnsu --noconfirm git
-                            fi    
+                            fi
                         fi
                     else
                         echo -e "${RED}!! setupsnapshots.sh not found.${NC}"
@@ -1215,7 +1319,7 @@ check_btrfs_snapshots() {
         return 0
     else
         echo -e "${RED}!! Not a BTRFS filesystem. Skipping snapshot setup.${NC}"
-        BTRFS_CHECKED=true # Prevents repeated messages
+        BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
     fi
 
     # Save to STATE_FILE
@@ -1241,7 +1345,8 @@ main() {
     create_aur_pkg_list
     check_mirrors
     check_btrfs_snapshots
-    rmdblck
+    check_pacman_processes
+    check_db_lock
     prompt_update
     trap 'clean_sudo' EXIT INT TERM
 }
