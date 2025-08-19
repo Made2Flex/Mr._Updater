@@ -3,6 +3,7 @@
 SCRIPT_VERSION="1.1.5-1"
 SCRIPT_NAME=$(basename "$0")
 
+
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
     exit 0
@@ -137,6 +138,8 @@ clean_sudo() {
 
     unset SUDO_PASSWORD
 }
+
+trap 'clean_sudo' EXIT INT TERM
 
 dynamic_me() {
     local message="$1"
