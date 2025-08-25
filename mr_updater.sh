@@ -139,6 +139,8 @@ clean_sudo() {
     unset SUDO_PASSWORD
 }
 
+trap 'clean_sudo' EXIT INT TERM
+
 dynamic_me() {
     local message="$1"
     #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
@@ -1081,7 +1083,7 @@ stop_spinner() {
     # Clear the line
     printf "\r%*s\r" $(tput cols) >&2
 
-    # Reset global variables
+    # Reset global variable
     spinner_pid=""
 }
 
@@ -1334,7 +1336,7 @@ main() {
     show_header
     greet_user
     cache_sudo_password
-    keep_sudo_alive &  # Start sudo keeper in the background
+    keep_sudo_alive &  # Start sudo keeper
     SUDO_KEEPER_PID=$! #
 	if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
         echo -e "${RED}!! Failed to start sudo keeper process. Continuing..${NC}"
@@ -1348,7 +1350,6 @@ main() {
     check_pacman_processes
     check_db_lock
     prompt_update
-    trap 'clean_sudo' EXIT INT TERM
 }
 
 # BoomShackalaka!!
