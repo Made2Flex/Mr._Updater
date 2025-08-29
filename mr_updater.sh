@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 SCRIPT_VERSION="1.1.6"
-SCRIPT_NAME=$(basename "$0")
 
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
@@ -66,7 +65,7 @@ WHITE='\033[0;37m'
 NC='\033[0m' # No color
 
 # ASCII Header
-ascii_header() {
+header() {
     cat << 'EOF'
 $$\   $$\                 $$\             $$\
 $$ |  $$ |                $$ |            $$ |
@@ -134,14 +133,16 @@ keep_sudo_alive() {
 }
 
 clean_sudo() {
-    kill "$SUDO_KEEPER_PID"
+    if [[ -n "${SUDO_KEEPER_PID:-}" ]]; then
+        kill "$SUDO_KEEPER_PID" 2>/dev/null
+    fi
 
     unset SUDO_PASSWORD
 }
 
 trap 'clean_sudo' EXIT INT TERM
 
-dynamic_me() {
+dynamic() {
     local message="$1"
     #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
@@ -166,7 +167,7 @@ dynamic_me() {
     } >&2
 }
 
-dynamic_color() {
+dynamic_line() {
     local message="$1"
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
     local NC="\033[0m"
@@ -207,7 +208,7 @@ check_db_lock() {
             sleep 1
         else
             echo -e "${RED}  !! Failed to remove pacman database lock${NC}"
-            dynamic_color "Manual intervention is required"
+            dynamic_line "Manual intervention is required"
             return 1
         fi
     fi
@@ -532,8 +533,8 @@ check_terminal() {
 #show header
 show_header() {
     echo -e "${BLUE}"
-    ascii_header
-    dynamic_me "Qnk6IE1hZGUyRmxleA=="
+    header
+    dynamic "Qnk6IE1hZGUyRmxleA=="
     echo -e "${NC}"
 }
 
@@ -641,7 +642,7 @@ detect_distribution() {
 # Function to warn user about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
-    dynamic_color "Manual intervention required to install deps."
+    dynamic_line "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
     echo -e "   . Download the package from the internet"
     echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
@@ -784,7 +785,7 @@ check_dependencies() {
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color "Try to install them manually, then run the script again."
+            dynamic_line "Try to install them manually, then run the script again."
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
