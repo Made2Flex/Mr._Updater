@@ -141,7 +141,7 @@ clean_sudo() {
 
 trap 'clean_sudo' EXIT INT TERM
 
-dynamic_me() {
+dynamic() {
     local message="$1"
     #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
@@ -165,7 +165,7 @@ dynamic_me() {
     } >&2
 }
 
-dynamic_color() {
+dynamic_line() {
     local message="$1"
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
     local NC="\033[0m"
@@ -404,7 +404,7 @@ check_terminal() {
 show_header() {
     echo -e "${BLUE}"
     header
-    dynamic_me "Qnk6IE1hZGUyRmxleA=="
+    dynamic "Qnk6IE1hZGUyRmxleA=="
     echo -e "${NC}"
 }
 
@@ -510,7 +510,7 @@ detect_distribution() {
 # Function to warn about manual installation
 warn_manual_install() {
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
-    dynamic_color "Manual intervention required to install deps."
+    dynamic_line "Manual intervention required to install deps."
     echo -e "${ORANGE}==>> Please install dependencies manually:${NC}"
     echo -e "   . Download the package from the internet"
     echo -e "   . Use: sudo dpkg -i package.deb for debian based systems"
@@ -653,7 +653,7 @@ check_dependencies() {
             echo -e "${GREEN}==>> Dependencies installed ✓successfully!${NC}"
         else
             echo -e "${RED}!!! Missing dependencies. Cannot proceed.${NC}"
-            dynamic_color "Try to install them manually, then run the script again."
+            dynamic_line "Try to install them manually, then run the script again."
             sleep 1
             echo -e "${ORANGE} ==>> Now exiting.${NC}"
             exit 1
