@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.1.6"
+SCRIPT_VERSION="1.1.7"
 
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
@@ -347,7 +347,7 @@ check_pacman_error() {
 
     # check for warnings that need special handling
     if parse_pacman_warnings "$error_message"; then
-        echo -e "${GREEN}==>> Warning handling completed.${NC}"
+        echo -e "${GREEN}==>> Done dealing with warnings.${NC}"
         echo
     fi
 
@@ -456,6 +456,57 @@ check_pacman_error() {
     return 0
 }
 
+# Function to strip log from colors and special characters
+strip_log() {
+    local input="$1"
+    # Remove ANSI color codes
+    input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
+    # Remove special characters
+    input=$(echo "$input" | tr -cd '\11\12\15\40-\176')
+    echo "$input"
+}
+
+# Function to get log file path based on distribution
+get_log_file_path() {
+    case "$DISTRO_ID" in
+        "arch"|"manjaro"|"endeavouros")
+            echo "$HOME/bk/arch/update-error.log"
+            ;;
+        "debian"|"ubuntu"|"linuxmint")
+            echo "$HOME/bk/debian/update-error.log"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+# Function to log errors
+log_error() {
+    local command="$1"
+    local output="$2"
+    local exit_code="$3"
+    local log_file
+
+    log_file=$(get_log_file_path)
+
+    if [[ -n "$log_file" && $exit_code -ne 0 ]]; then
+        # Ensure backup directory exists
+        local backup_dir=$(dirname "$log_file")
+        mkdir -p "$backup_dir" 2>/dev/null
+
+        local timestamp=$(date +"%Y-%m-%d %I:%M:%S %p")
+        local stripped_output=$(strip_log "$output")
+
+        {
+            echo "[$timestamp] Command failed with exit code $exit_code: $command"
+            echo "[$timestamp] Error output:"
+            echo "$stripped_output"
+            echo "----------------------------------------"
+        } >> "$log_file"
+    fi
+}
+
 # Function to check for errors and pass them to check_pacman_error()
 run_command() {
     local command="$1"
@@ -471,6 +522,9 @@ run_command() {
     fi
 
     local exit_code=${PIPESTATUS[0]}
+
+    # Log errors
+    log_error "$command" "$output" "$exit_code"
 
     # Pass output to check_pacman_error
     check_pacman_error "$output"
@@ -793,16 +847,6 @@ check_dependencies() {
     fi
 }
 
-# Function to strip log from colors and special characters
-strip_log() {
-    local input="$1"
-    # Remove ANSI color codes
-    input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
-    # Remove special characters
-    input=$(echo "$input" | tr -cd '\11\12\15\40-\176')
-    echo "$input"
-}
-
 # Function to create log file
 create_timestamped_log() {
     local original_log_file="$1"
@@ -1122,7 +1166,15 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
+		# leaving this out for now..
+                # AUR update vars
+#                 local aur_output
+#                 local aur_exit_code
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
+#                 aur_exit_code=$?
+
+#                 # Log AUR update errors
+#                 log_error "yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter" "$aur_output" "$aur_exit_code"
             fi
 
             aur_updates=$(yay -Qua 2>/dev/null)
@@ -1139,7 +1191,6 @@ update_system() {
             # Start spinner
             start_spinner_spinner
 
-            # Capture command output and exit status
             local update_output
             local exit_status
             update_output=$(sudo nala update)
@@ -1157,6 +1208,10 @@ update_system() {
             elif [ $exit_status -ne 0 ]; then
                 echo -e "${RED}!!! Update check failed. See output below:${NC}"
                 echo "$update_output"
+
+                # Log update errors
+#                log_error "sudo nala update" "$update_output" "$exit_status"
+
                 return 1
             else
                 echo -e "${ORANGE}==>> No packages to update.${NC}"
