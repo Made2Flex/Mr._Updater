@@ -94,7 +94,7 @@ cache_sudo_password() {
             exit 1
         fi
         echo
-        
+
         # Verify the password
         if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
             export SUDO_PASSWORD
@@ -363,7 +363,7 @@ check_terminal() {
     if [ ! -t 0 ]; then
         # Silence GTK warnings
         local zenity_command="zenity --question --title='Terminal Required' --text='This program must be run in a terminal. Do you want to open a terminal now?' 2>/dev/null"
-        
+
         if eval "$zenity_command"; then
             local script_path
             script_path=$(get_script_path)
@@ -481,7 +481,7 @@ detect_distribution() {
             "manjaro")
                 DISTRO="Manjaro Linux"
                 PACKAGE_MANAGER="pacman"
-                MIRROR_REFRESH_CMD="sudo pacman-mirrors --geoip"
+                MIRROR_REFRESH_CMD="sudo pacman-mirrors --fasttrack 10" # Picks the fastest 10 mirrors. Use --continent to use geolocation
                 ;;
             "endeavouros")
                 DISTRO="EndeavourOS"
@@ -991,7 +991,7 @@ update_system() {
             fi
 
             aur_updates=$(yay -Qua 2>/dev/null)
-            
+
             if [[ -n "$output" || -n "$aur_updates" ]]; then
                 echo -e "${ORANGE}==>> System has been updated.${NC}"
             else
@@ -1169,7 +1169,7 @@ check_btrfs_snapshots() {
 
                             if [[ "$git_remove_choice" == "y" || "$git_remove_choice" == "yes" || -z "$git_remove_choice" ]]; then
                                 sudo pacman -Rnsu --noconfirm git
-                            fi    
+                            fi
                         fi
                     else
                         echo -e "${RED}!! setupsnapshots.sh not found.${NC}"
