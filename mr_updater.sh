@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.1.7"
+SCRIPT_VERSION="1.1.8"
 
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
-    exit 0
 }
 
 # Function to display help information
 show_help() {
-    echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
-    echo
     echo -e "${LIGHT_BLUE}This script is a system updater for Linux systems.${NC}"
+    echo
+    echo -e "${LIGHT_BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
     echo
     echo -e "${LIGHT_BLUE}Options:${NC}"
     echo "  -h, --help     Display this help message."
     echo "  -v, --version  Show version information."
+    echo "  -L, --log  Show recent pacman transactions."
     echo
     echo -e "${LIGHT_BLUE}This script will:${NC}"
     echo -e "${GREEN}. Perform system updates${NC}"
@@ -25,9 +25,8 @@ show_help() {
     echo
     echo -e "${BLUE}. Supports multiple Linux distributions (Arch based and Debian based.)${NC}"
     echo
-     echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
+    echo -e "${ORANGE}Note:${NC} This script requires root privileges for certain operations."
     echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
-    exit 0
 }
 
 # Function to parse -v and -h
@@ -36,12 +35,19 @@ parser() {
         case "$1" in
             -h|--help)
                 show_help
+                exit 0
                 ;;
             -v|--version)
                 show_version
+                exit 0
+                ;;
+            -L|--log)
+                show_pacman_log
+                exit 0
                 ;;
             *)
-                echo -e "${RED}Error: This script does not accept arguments${NC}"
+                echo -e "${RED}Error: Wrong argument. Please see bellow${NC}"
+                echo
                 show_help
                 exit 1
                 ;;
@@ -140,7 +146,7 @@ clean_sudo() {
     unset SUDO_PASSWORD
 }
 
-trap 'clean_sudo' EXIT INT TERM
+trap 'clean_sudo' EXIT INT TERM KILL HUP QUIT ABRT PIPE ALRM USR1 USR2 STOP TSTP TTIN TTOU
 
 dynamic() {
     local message="$1"
@@ -155,7 +161,7 @@ dynamic() {
             # Cycle through colors
             color=${colors[$((i % ${#colors[@]}))]}
 
-            # Use \r to return to start of line, update with new color
+            # return to start of line
             printf "\r${color}                                            ${message}${NC}"
 
             sleep "$delay"
@@ -209,7 +215,8 @@ check_db_lock() {
         else
             echo -e "${RED}  !! Failed to remove pacman database lock${NC}"
             dynamic_line "Manual intervention is required"
-            return 1
+            echo -e "${MAGENTA}Please, run: sudo rm -fv /var/lib/pacman/db.lck${NC}"
+            exit 1
         fi
     fi
 }
@@ -236,7 +243,7 @@ parse_pacman_warnings() {
                 # Check if the original file exists
                 if [[ -f "$file_path" ]]; then
                     echo -e "${GREEN}    ✓ Original file exists${NC}"
-
+                    #TODO: fix: prompt not prompting
                     # Offer to show differences
                     read -rp "$(echo -e "${MAGENTA}Would you like to see the differences? (y/N)${NC} ")" show_diff
                     show_diff=$(echo "$show_diff" | tr '[:upper:]' '[:lower:]')
@@ -250,7 +257,7 @@ parse_pacman_warnings() {
                             echo -e "${RED}  !! diff command not available${NC}"
                         fi
                     fi
-
+                    #TODO: fix: prompt not prompting
                     # Offer to merge files
                     read -rp "$(echo -e "${MAGENTA}Would you like to merge the new configuration? (y/N)${NC} ")" merge_choice
                     merge_choice=$(echo "$merge_choice" | tr '[:upper:]' '[:lower:]')
@@ -275,11 +282,10 @@ parse_pacman_warnings() {
                     echo -e "${RED}    !! Original file not found${NC}"
                     echo -e "${ORANGE}  >> This might be a new configuration file${NC}"
                 fi
-                echo
             fi
         done
     fi
-
+    #TODO: fix: not catching permission changes
     # Parse permission discrepancy warnings
     if echo "$output" | grep -q "directory permissions differ"; then
         echo -e "${ORANGE}==>> Detected permission discrepancies:${NC}"
@@ -324,7 +330,6 @@ parse_pacman_warnings() {
                 else
                     echo -e "${RED}    !! Directory not found${NC}"
                 fi
-                echo
             fi
         done
     fi
@@ -337,7 +342,6 @@ parse_pacman_warnings() {
     fi
 }
 
-
 # Function to check for errors
 check_pacman_error() {
     local error_message="$1"
@@ -347,8 +351,7 @@ check_pacman_error() {
 
     # check for warnings that need special handling
     if parse_pacman_warnings "$error_message"; then
-        echo -e "${GREEN}==>> Done dealing with warnings.${NC}"
-        echo
+        echo -e "${GREEN}==>> Checked warnings.${NC}"
     fi
 
     # try to word bound
@@ -443,6 +446,7 @@ check_pacman_error() {
                     fi
                 else
                     echo -e "${GREEN}==>> GRUB configuration updated successfully after second attempt!${NC}"
+                    echo -e "${ORANGE}==>> You may want to check the FileSystem for Possible corruption. Check drive health.${NC}"
                 fi
             else
                 echo -e "${GREEN}==>> GRUB configuration updated successfully!${NC}"
@@ -456,12 +460,49 @@ check_pacman_error() {
     return 0
 }
 
+# Show recent Pacman operations
+show_pacman_log() {
+    local pac_log="/var/log/pacman.log"
+    local temp_log
+    local OPERATION_LINES=200
+    local indicators="installed|upgraded|removed|transaction|error|failed"
+
+    if [[ ! -f $pac_log ]]; then
+        echo -e "${RED}Pacman.log not found: $pac_log${NC}"
+        return 1
+    fi
+
+    if [[ ! -s $pac_log ]]; then
+        echo -e "${LIGHT_BLUE}Pacman.log appears to be empty. There is nothing to display.${NC}"
+        return 0
+    fi
+
+    # Filter only transaction operations and possible errors
+    temp_log=$(mktemp)
+    grep -E "$indicators" "$pac_log" | tail -n $OPERATION_LINES > "$temp_log"
+
+    if grep -E "error|failed" "$temp_log" >/dev/null; then
+        echo -e "${RED}!!! Recent pacman operations contain errors/failures:${NC}"
+        grep -Ei "error|failed" "$temp_log" | tail -n 3
+        echo -e "${ORANGE}-- Displaying last operations..${NC}"
+    fi
+
+    # Use bat if available, else fallback to grep and cat
+    if command -v bat >/dev/null 2>&1; then
+        bat --style=auto --paging=auto "$temp_log"
+    elif command -v cat >/dev/null 2>&1; then
+        grep -E "$indicators" "$temp_log" | cat
+    else
+        grep -E "$indicators" "$temp_log"
+    fi
+
+    rm -f "$temp_log"
+}
+
 # Function to strip log from colors and special characters
 strip_log() {
     local input="$1"
-    # Remove ANSI color codes
     input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
-    # Remove special characters
     input=$(echo "$input" | tr -cd '\11\12\15\40-\176')
     echo "$input"
 }
@@ -667,7 +708,7 @@ detect_distribution() {
             "manjaro")
                 DISTRO="Manjaro Linux"
                 PACKAGE_MANAGER="pacman"
-                MIRROR_REFRESH_CMD="sudo pacman-mirrors --geoip"
+                MIRROR_REFRESH_CMD=" sudo pacman-mirrors --fasttrack 10" # Picks the fastest 10 mirrors. Use --continent to use geolocation
                 ;;
             "endeavouros")
                 DISTRO="EndeavourOS"
@@ -682,8 +723,8 @@ detect_distribution() {
                 ;;
             *)
                 echo -e "${RED}!!! Unsupported distribution: $DISTRO_ID${NC}"
-                sleep 1
                 echo -e "${MAGENTA}==>> Please report this to the developer. Or kindly add support for your distro yourself!${NC}"
+                sleep 1
                 exit 1
                 ;;
         esac
@@ -778,7 +819,7 @@ check_dependencies() {
                                 echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
                                 echo -e "${ORANGE}  >> Output:${NC}"
                                 echo "$install_output"
-                                echo -e "${ORANGE}  >> Manual intervention Required. Please use pacman -S to install it${NC}"
+                                dynamic_line  ">> Manual intervention Required. Please use pacman -S to install it"
                             fi
                             break
                         fi
@@ -941,7 +982,7 @@ create_aur_pkg_list() {
             local log_file="$HOME/bk/arch/aur-pkglst.log"
             local aur_pkg_list_file="$HOME/bk/arch/aur-pkglst.txt"
 
-            # Capture AUR packages and save to it file
+            # Capture AUR packages and save it
             error_output=$(sudo pacman -Qmq 2>&1)
             if [ $? -eq 0 ]; then
                 AUR_PACKAGES="$error_output"
@@ -1032,11 +1073,11 @@ check_mirrors() {
                             fi
                         fi
                     else
-                        # For other distributions.
+                        # For other distributions
                         $MIRROR_REFRESH_CMD
                     fi
 
-                    echo -e "${GREEN}==>> Mirrors have been refreshed.${NC}"
+                    echo -e "${ORANGE}==>> Mirrors have been refreshed.${NC}"
                 else
                     echo -e "${GREEN}  >> Mirror list is fresh. moving on..${NC}"
                 fi
@@ -1144,7 +1185,7 @@ update_system() {
                 echo -e "${ORANGE}  >>${NC} ${GREEN}Updates found!${NC} ${ORANGE}Proceeding with system update...${NC}"
                 run_command "sudo pacman -Syyuu --noconfirm --needed"
             else
-                echo -e "${ORANGE}==>> Pacman packages are up-to-date.${NC}"
+                echo -e "${GREEN}==>> Pacman packages are up-to-date.${NC}"
             fi
 
             if [ -n "$AUR_PACKAGES" ]; then
@@ -1163,18 +1204,11 @@ update_system() {
                         fi
                     fi
                 else
+                    # TODO: check for false positives
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update...${NC}"
-		# leaving this out for now..
-                # AUR update vars
-#                 local aur_output
-#                 local aur_exit_code
                 yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter
-#                 aur_exit_code=$?
-
-#                 # Log AUR update errors
-#                 log_error "yay -Sua --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --noconfirm --cleanafter" "$aur_output" "$aur_exit_code"
             fi
 
             aur_updates=$(yay -Qua 2>/dev/null)
@@ -1188,7 +1222,6 @@ update_system() {
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking for package updates.${NC}"
 
-            # Start spinner
             start_spinner_spinner
 
             local update_output
@@ -1196,7 +1229,6 @@ update_system() {
             update_output=$(sudo nala update)
             exit_status=$?
 
-            # Stop spinner
             stop_spinner
 
             # Check command output
@@ -1208,9 +1240,6 @@ update_system() {
             elif [ $exit_status -ne 0 ]; then
                 echo -e "${RED}!!! Update check failed. See output below:${NC}"
                 echo "$update_output"
-
-                # Log update errors
-#                log_error "sudo nala update" "$update_output" "$exit_status"
 
                 return 1
             else
@@ -1312,8 +1341,10 @@ check_btrfs_snapshots() {
 
             # Check for existing snapshots
             if sudo btrfs subvolume list / | grep -q "snapshot"; then
+                echo "sudo btrfs subvolume list / | grep -q "snapshot""
                 echo -e "${GREEN}  >> BTRFS snapshots are already set up.${NC}"
                 BTRFS_SNAPSHOTS_SETUP=true
+                sleep 2
             else
                 echo -e "${RED}==>> BTRFS snapshots are not set up.${NC}"
                 read -rp "$(echo -e "${MAGENTA}Would you like to set up BTRFS snapshots? (y/N)${NC} ")" setup_choice
@@ -1380,7 +1411,6 @@ check_btrfs_snapshots() {
         BTRFS_CHECKED=true # Mark as checked to prevent repeated messages
     fi
 
-    # Save to STATE_FILE
     save_state
 }
 
