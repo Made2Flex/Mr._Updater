@@ -46,6 +46,7 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
 EOF
 }
 
+
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
 }
