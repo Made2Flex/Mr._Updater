@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.4.0-3"
+SCRIPT_VERSION="1.4.0-4"
 AUTHOR="TWFkZTJGbGV4"
 
 set -uo pipefail
@@ -45,7 +45,6 @@ $$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
           \__|
 EOF
 }
-
 
 show_version() {
     echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
@@ -202,10 +201,8 @@ dynamic() {
 
     {
         for ((i=1; i<=iterations; i++)); do
-            # Cycle through colors
             color=${colors[$((i % ${#colors[@]}))]}
 
-            # return to start of line
             printf "\r${color}                                            ${message}${NC}"
 
             sleep "$delay"
@@ -286,8 +283,7 @@ merge_pacnew_file() {
     echo -e "${LIGHT_BLUE}     - Use the meld GUI to resolve/merge configuration files as needed.${NC}"
     echo -e "${LIGHT_BLUE}     - Save changes and when done, exit meld and pacdiff will proceed.${NC}"
 
-    # hand off to pacdiff with meld as diff tool
-    sudo DIFFPROG=meld pacdiff
+    sudo -H DIFFPROG=meld pacdiff
     local status=$?
     if [[ $status -eq 0 ]]; then
         echo -e "${GREEN}    ✓ pacdiff completed.${NC}"
@@ -439,13 +435,26 @@ check_pacman_error() {
                 echo "$output"
                 if echo "$output" | grep -q "WARNING: 'grub-mkconfig' needs to run at least once to generate the snapshots (sub)menu entry in grub the main menu"; then
                     echo -e "${RED}!! GRUB warning persists after second attempt.${NC}"
-                    echo -e "${ORANGE}==>>${ORANGE}Manually run ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}rebooting the system.${NC}"
-                    echo -e "${ORANGE}==>> Would you like to run it at script exit? (y/N)${NC}"
+                    echo -e "${ORANGE}==>> Manually run${NC} ${MAGENTA}sudo grub-mkconfig${NC} ${ORANGE}and${NC} ${MAGENTA}sudo grub-mkconfig -o /boot/grub/grub.cfg${NC} ${ORANGE}.${NC} ${ORANGE}Then reboot the system.${NC}"
+                    echo -e "${ORANGE}==>> Would you like to run it at script exit? (y/N)${NC}"S
                     read -rp "" exit_choice
                     exit_choice=$(echo "$exit_choice" | tr '[:upper:]' '[:lower:]')
                     if [[ "$exit_choice" == "y" || "$exit_choice" == "yes" ]]; then
-                        trap 'echo -e "${LIGHT_BLUE}==>> Running grub-mkconfig at script exit...${NC}"; sudo grub-mkconfig && sudo grub-mkconfig -o /boot/grub/grub.cfg' EXIT
+                        echo -e "${LIGHT_BLUE}'==>> Running grub-mkconfig at script exit...${NC}"
+                        trap '
+                            if ! sudo grub-mkconfig; then
+                                echo "!! Error running grub-mkconfig (exit code: $?)."
+                                exit 1
+                            fi
+
+                            if ! sudo grub-mkconfig -o /boot/grub/grub.cfg; then
+                                echo "!! Error running grub-mkconfig -o /boot/grub/grub.cfg (exit code: $?)."
+                            else
+                                echo "==>> grub-mkconfig ran successfully at script exit."
+                            fi
+                        ' EXIT
                     fi
+
                 else
                     echo -e "${GREEN}==>> GRUB configuration updated successfully after second attempt!${NC}"
                     echo -e "${ORANGE}==>> You may want to check the FileSystem for Possible corruption. Check drive health.${NC}"
@@ -624,18 +633,16 @@ get_script_path() {
     readlink -f "$0"
 }
 
-# TODO: Check why after clicking'YES', AND then closing the terminal. opens the next available term.
 check_terminal() {
     # Check if stdin is a terminal
     if [ ! -t 0 ]; then
-        # Silence GTK warnings by redirecting stderr
+        # Silence GTK warnings
         local zenity_command="zenity --question --title='Terminal Required' --text='This program must be run in a terminal. Do you want to open a terminal now?' 2>/dev/null"
 
         if eval "$zenity_command"; then
             local script_path
             script_path=$(get_script_path)
 
-            # Try various terminal emulators
             local terminal_commands=(
                 "xdg-terminal \"$script_path\""
                 "gnome-terminal -- \"$script_path\""
@@ -1042,7 +1049,7 @@ create_aur_pkg_list() {
                 AUR_PACKAGES="$error_output"
                 echo "$AUR_PACKAGES" > "$aur_pkg_list_file"
 
-                echo -e "${ORANGE}==>> Installed AUR Packages...${NC}"
+                echo -e "${ORANGE}==>> Installed AUR Packages:${NC}"
                 echo -e "${BROWN}$AUR_PACKAGES${NC}"
 
                 if [ -n "$AUR_PACKAGES" ]; then
@@ -1199,7 +1206,7 @@ fflush() {
 }
 
 # Function to create a spinner with colors
-start_spinner_spinner() {
+start_spinner() {
     local spinners=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local colors=("$GREEN" "$ORANGE" "$RED" "$BLUE" "$MAGENTA" "$LIGHT_BLUE")
     local delay=0.1
@@ -1306,6 +1313,7 @@ rebuild_informant_after_python_update() {
             echo -e "${RED}  !! 'yay' not found. Cannot rebuild informant automatically.${NC}"
         fi
     fi
+
     # Disable informant hook so it doesn't overlap with our customized informant function
     disable_informant_hook
 }
@@ -1322,7 +1330,7 @@ check_arch_news() {
 
             echo -e "${ORANGE}==>> Checking Arch Linux news...${NC}"
 
-            # Check for unread news (informant should return non-zero if unread news exists. but it may fail at times)
+            # Check for unread news
             if sudo informant check &>/dev/null; then
                 echo -e "${GREEN}  >> No unread Arch Linux news${NC}"
                 return 0
@@ -1517,7 +1525,7 @@ update_system() {
 
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update..${NC}"
                 sleep 1
-                yay -Sua --noconfirm --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --cleanafter --useask --noanswerupgrade
+                yay -Sua --noconfirm --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --cleanafter --useask --noanswerupgrade && yay -Yc --noconfirm
             else
                 # skip AUR update
                 :
@@ -1537,7 +1545,7 @@ update_system() {
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking packages to update.${NC}"
 
-            start_spinner_spinner
+            start_spinner
 
             local update_output
             local exit_status
@@ -1552,8 +1560,8 @@ update_system() {
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
                 echo -e "${GREEN}==>> System has been updated!${NC}"
             elif [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -Eq 'dpkg was interrupted'; then
-                sudo dpkg --configure -a
                 echo -e "${GREEN}==>> Reconfigured lost lambs.${NC}"
+                sudo dpkg --configure -a
             elif [ $exit_status -ne 0 ]; then
                 echo -e "${RED}!!! Update check failed. See output below:${NC}"
                 echo "$update_output"
@@ -1592,7 +1600,7 @@ prompt_update() {
     done
 }
 
-# Function to load the state from the STATE_FILE
+# Function to load STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
         if ! source "$STATE_FILE"; then
