@@ -1245,8 +1245,9 @@ stop_spinner() {
 
     # Kill the spinner process
     if [ -n "$spinner_pid" ]; then
+         kill "$spinner_pid" 2>/dev/null
+         wait "$spinner_pid" 2>/dev/null
         kill -0 "$spinner_pid" 2>/dev/null
-        wait "$spinner_pid" 2>/dev/null
     fi
 
     # Clear the line
@@ -1560,8 +1561,8 @@ update_system() {
                 sudo nala upgrade --assume-yes --no-install-recommends --no-install-suggests --no-update --full
                 echo -e "${GREEN}==>> System has been updated!${NC}"
             elif [[ $exit_status -eq 0 ]] && echo "$update_output" | grep -Eq 'dpkg was interrupted'; then
-                echo -e "${GREEN}==>> Reconfigured lost lambs.${NC}"
                 sudo dpkg --configure -a
+                echo -e "${GREEN}==>> Reconfigured lost lambs.${NC}"
             elif [ $exit_status -ne 0 ]; then
                 echo -e "${RED}!!! Update check failed. See output below:${NC}"
                 echo "$update_output"
