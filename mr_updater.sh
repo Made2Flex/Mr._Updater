@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.4.0-4"
+SCRIPT_VERSION="1.4.1-2"
 AUTHOR="TWFkZTJGbGV4"
 
 set -uo pipefail
@@ -8,7 +8,10 @@ set -uo pipefail
 # -u: treat unset variables as error
 # -o pipefail: capture pipeline errors
 
-# Color definitions
+
+## // Configurations // ##
+
+# Colors
 GREEN='\033[1;32m'
 ORANGE='\033[1;33m'
 BROWN='\033[0;33m'
@@ -29,171 +32,138 @@ spinner_running=false
 # stores the value of the BTRFS flags
 STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.conf"
 
-# Header
-header() {
-    cat << 'EOF'
-$$\   $$\                 $$\             $$\
-$$ |  $$ |                $$ |            $$ |
-$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\
-$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\
-$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|
-$$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
-\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |
- \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|
-          $$ |
-          $$ |
-          \__|
-EOF
-}
+# Sudo temp file
+SUDO_PASS_FILE=""
 
-show_version() {
-    echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
-}
 
-show_author() {
-    local _timestamped_log
+## // FUNCTIONS // ##
+# Check for errors and pass them to check_pacman_error()
+run_command() {
+    local command="$1"
+    local output
 
-    if [[ -n "$AUTHOR" ]]; then
-        local decoded_author
-        decoded_author=$(echo "$AUTHOR" | base64 --decode 2>/dev/null)
-        if [[ $? -eq 0 ]]; then
-            echo -e "${BROWN}${decoded_author}${NC}"
-        else
-            _timestamped_log=$(log_errors "AUTHOR" "Failed to decode AUTHOR (not valid base64?)" "1" "error" "false")
-            echo -e "${RED}[ERROR]${NC} ${ORANGE}Failed to decode AUTHOR (not valid base64?)${NC}"
-        fi
+    if [[ "$command" == sudo* ]]; then
+        # Use sudo_cached for commands that require sudo
+        output=$(sudo_cached "${command#sudo }" 2>&1 | tee /dev/tty)
     else
-        _timestamped_log=$(log_errors "AUTHOR" "AUTHOR variable is unset." "1" "error" "false")
-        echo -e "${RED}[ERROR]${NC} ${ORANGE}AUTHOR variable is unset.${NC}"
+        # Capture stdout and stderr
+        output=$(eval "$command" 2>&1 | tee /dev/tty)
     fi
-}
 
-# Function to display help information
-show_help() {
-    echo -e "${LIGHT_BLUE}This script is a system updater for Linux systems.${NC}"
-    echo
-    echo -e "${BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
-    echo
-    echo -e "${BLUE}Options:${NC}"
-    echo "  -h, --help     Display this help message."
-    echo "  -v, --version  Show version information."
-    echo "  -l, --log      Show recent pacman transactions."
-    echo "  -n, --news     Show linux arch news."
-    echo "  -a, --author   Show script author."
-    echo
-    echo -e "${BLUE}This script will:${NC}"
-    echo "  . Manage dependencies and their installations"
-    echo "  . Handle BTRFS snapshot setup"
-    echo "  . Create system backup via Package list"
-    echo "  . Refresh mirrors every week"
-    echo "  . Identifies database issues and attempts to fix them(Archlinux)"
-    echo "  . Perform system updates"
-    echo
-    echo -e "${BLUE}Supports:${NC}"
-    echo "   . Multiple Linux distributions"
-    echo
-    echo -e "${ORANGE}Note:${NC} This script requires root privilege for certain operations."
-    echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
-}
+    local exit_code=${PIPESTATUS[0]}
 
-# Function to parse args
-arg_parser() {
-    if [[ $# -gt 0 ]]; then
-        case "$1" in
-            -h|-H|--help)
-                show_help
-                exit 0
-                ;;
-            -v|-V|--version)
-                show_version
-                exit 0
-                ;;
-            -l|-L|--log)
-                show_pacman_log
-                exit 0
-                ;;
-            -a|-A|--author)
-                show_author
-                exit 0
-                ;;
-            -n|-N|--news)
-                show_all_news
-                exit 0
-                ;;
-            *)
-                echo -e "${RED}Error:${NC} ${ORANGE}Wrong argument. Please see bellow${NC}"
-                echo
-                show_help
-                exit 1
-                ;;
-        esac
+    # Log
+    local _timestamped_log
+    _timestamped_log=$(log_errors "$command" "$output" "$exit_code")
+
+    # Pass output to check_pacman_error
+    check_pacman_error "$output"
+
+    if [[ $exit_code -ne 0 ]]; then
+        echo -e "${RED}Command failed with exit code $exit_code:${NC}"
+        echo "$output"
+        return 1
     fi
+
+    return 0
 }
 
-# Function to cache the sudo password for the current session
+# cache the sudo password for the current session
 cache_sudo_password() {
     local attempts=0
     local max_attempts=3
+    local tmp_path
 
-    while [[ $attempts -lt $max_attempts ]]; do
+    # Remove any previous pass file
+    if [[ -n "${SUDO_PASS_FILE:-}" && -f "$SUDO_PASS_FILE" ]]; then
+        rm -f "$SUDO_PASS_FILE"
+    fi
+
+    # mktemp file
+    tmp_path=$(mktemp)
+    chmod 600 "$tmp_path"
+    SUDO_PASS_FILE="$tmp_path"
+
+    while (( attempts < max_attempts )); do
         echo -ne "${MAGENTA}Please, enter your sudo password: ${NC}"
-        if ! read -s -t 60 SUDO_PASSWORD; then
+        if ! read -s -t 60 password_input; then
             echo -e "\n${RED}Error: Password input timed out after 60 seconds.${NC}"
+            rm -f "$SUDO_PASS_FILE"
             exit 1
         fi
         echo
 
-        # Verify the password
-        if echo "$SUDO_PASSWORD" | sudo -S -v 2>/dev/null; then
-            export SUDO_PASSWORD
+        # validate password
+        if printf "%s\n" "$password_input" | sudo -S -l &>/dev/null; then
+            # Store it if sudo is valid
+            printf "%s\n" "$password_input" > "$SUDO_PASS_FILE"
+            chmod 600 "$SUDO_PASS_FILE"
+            unset password_input
             return 0
         else
-            attempts=$((attempts + 1))
-            if [[ $attempts -lt $max_attempts ]]; then
-                echo -e "${RED}Incorrect password. Please try again.${NC}"
-            fi
+            attempts=$((attempts+1))
+            echo -e "${RED}Incorrect password. Please try again.${NC}"
+            # Overwrite previous credential
+            :> "$SUDO_PASS_FILE"
         fi
+        unset password_input
     done
 
     echo -e "${RED}Maximum password attempts reached. Exiting.${NC}"
+    rm -f "$SUDO_PASS_FILE"
     exit 1
 }
 
-# Function to use the cached sudo password
+# invoc the cached password
 sudo_cached() {
-    if [[ -z "$SUDO_PASSWORD" ]]; then
-        echo "[ERROR] SUDO_PASSWORD is not set." >&2
+    local command="$*"
+    # Test file
+    if [[ -z "${SUDO_PASS_FILE:-}" || ! -s "$SUDO_PASS_FILE" ]]; then
+        echo -e "${RED}[ERROR] SUDO password not cached.${NC}" >&2
         return 1
-    else
-        echo "$SUDO_PASSWORD" | sudo -S bash -c "$*"
-        return $?
     fi
+    # Use -p '' to suppress extra prompts
+    # Reset sudo timestamp (-k) before running, to hopefully guarantee prompt usage
+    sudo -S -p '' -k bash -c "$command" < "$SUDO_PASS_FILE"
+    return $?
 }
 
-# Function to keep sudo alive during script execution
+# keep sudo alive
 keep_sudo_alive() {
     while true; do
-       if ! echo "$SUDO_PASSWORD" | sudo -S -v; then
-            echo -e "${RED}!! Failed to refresh sudo.${NC}" >&2
+        if [[ -n "${SUDO_PASS_FILE:-}" && -s "$SUDO_PASS_FILE" ]]; then
+            # refresh only.
+            if ! sudo -S -p '' -v < "$SUDO_PASS_FILE" 2>/dev/null; then
+                echo -e "${RED}!! Failed to refresh sudo.${NC}" >&2
+                return 1
+            fi
+        else
+            echo -e "${RED}!! SUDO_PASS_FILE disappeared; cannot keep sudo alive.${NC}" >&2
             return 1
         fi
-		sleep 60
+        sleep 60
     done
 }
 
+# Clean up cached password file
 clean_sudo() {
     if [[ -n "${SUDO_KEEPER_PID:-}" ]]; then
         kill "$SUDO_KEEPER_PID" 2>/dev/null
     fi
-
-    unset SUDO_PASSWORD
+    # Remove cached password file
+    if [[ -n "${SUDO_PASS_FILE:-}" && -f "$SUDO_PASS_FILE" ]]; then
+        (dd if=/dev/zero of="$SUDO_PASS_FILE" bs=1 count=$(stat -c %s "$SUDO_PASS_FILE") conv=notrunc 2>/dev/null || true)
+        rm -f "$SUDO_PASS_FILE"
+    fi
+    unset SUDO_PASS_FILE
 }
 
+# Traps
 trap 'clean_sudo' EXIT INT TERM KILL HUP QUIT ABRT PIPE ALRM USR1 USR2 STOP TSTP TTIN TTOU
 
 dynamic() {
     local message="$1"
-    #local colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
+    #     colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
     local NC="\033[0m"
     local delay=0.1
@@ -219,7 +189,7 @@ dynamic_line() {
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;32m" "\033[1;36m" "\033[1;35m" "\033[1;34m")
     local NC="\033[0m"
     local delay=0.1
-    local iterations=${2:-30}  # Default 30 iterations
+    local iterations=${2:-30}
 
     {
         for ((i=1; i<=iterations; i++)); do
@@ -244,7 +214,7 @@ check_pacman_processes() {
     fi
 }
 
-# Function to check if pacman db is locked
+# check if pacman db is locked
 check_db_lock() {
     if [ -f /var/lib/pacman/db.lck ]; then
         echo -e "${RED}==>> Pacman database is locked.${NC}"
@@ -262,14 +232,16 @@ check_db_lock() {
     fi
 }
 
-# Function to merge .pacnew files
+# merge .pacnew files
 merge_pacnew_file() {
 
     if ! command -v pacdiff &> /dev/null; then
-        echo -e "${RED}  !! pacdiff not found. pacman-contrib package is required.${NC}"
+        dynamic_line "Manual intervention is required"
+        echo -e "${RED}  !! pacdiff not found.${NC}"
         return 1
     fi
     if ! command -v meld &> /dev/null; then
+        dynamic_line "Manual intervention is required"
         echo -e "${RED}  !! meld not found. Please install meld package.${NC}"
         return 1
     fi
@@ -283,23 +255,42 @@ merge_pacnew_file() {
     echo -e "${LIGHT_BLUE}     - Use the meld GUI to resolve/merge configuration files as needed.${NC}"
     echo -e "${LIGHT_BLUE}     - Save changes and when done, exit meld and pacdiff will proceed.${NC}"
 
-    sudo -H DIFFPROG=meld pacdiff
+    #run_command "sudo -v"
+    run_command "sudo -H DIFFPROG=meld pacdiff"
+    # check if meld window opened.
+    local meld_found
+    pgrep -fa meld | grep -q "meld"
+    meld_found=$?
+
     local status=$?
-    if [[ $status -eq 0 ]]; then
+    if [[ $meld_found -eq 0 ]]; then
+        # Meld launched successfully
+        :
+    else
+        echo -e "${RED}  !! Could not detect that meld was launched. Something may have gone wrong.${NC}"
+        echo -e "${ORANGE}  >> If meld did not open, try running:${NC} ${MAGENTA}sudo DIFFPROG=meld pacdiff${NC} ${ORANGE}manually.${NC}"
+
+        # Log
+        log_errors "pacdiff/merge" "meld did not launch as expected during pacdiff merge" "$status" "error" "false"
+    fi
+    
+
+    if [[ $status -eq 0 && $meld_found -eq 0 ]]; then
         echo -e "${GREEN}    ✓ pacdiff completed.${NC}"
     else
-        echo -e "${ORANGE}!!    pacdiff exited with status $status. Please verify if merge was completed.${NC}"
+        echo -e "${ORANGE}!!    pacdiff exited with status $status. Please verify that meld opened and merges were completed.${NC}"
+        log_errors "The bed has been shited" "pacdiff/meld exit with:$status" "error" "false"
     fi
     return $status
 }
 
-# Function to parse .pacnew files
+# parse .pacnew files
 parse_pacman_.pacnew() {
     local output="$1"
     local warnings_found=false
 
     if echo "$output" | grep -q "installed as.*\.pacnew"; then
-        echo -e "${ORANGE}==>> Detected new .pacnew configuration files:${NC}"
+        echo -e "${ORANGE}==>> Detected new configuration files:${NC}"
         warnings_found=true
 
         local pacnew_warnings=()
@@ -309,6 +300,12 @@ parse_pacman_.pacnew() {
 
         if [[ ${#pacnew_warnings[@]} -gt 0 ]]; then
             echo -e "${LIGHT_BLUE}  >> Found ${#pacnew_warnings[@]} .pacnew file(s)${NC}"
+            for pacnew_line in "${pacnew_warnings[@]}"; do
+                pacnew_file=$(echo "$pacnew_line" | sed -E 's/.*installed as (.*\.pacnew).*/\1/')
+                orig_file=$(echo "$pacnew_line" | sed -E 's/(.*) installed as .*/\1/')
+                echo -e "${BLUE}    >> ${NC}${MAGENTA}$orig_file${NC} ${ORANGE}→${NC} ${LIGHT_BLUE}$pacnew_file${NC}"
+            done
+   
             # Log the warning
             local warning_msg="Detected ${#pacnew_warnings[@]} .pacnew configuration file(s) that need merging"
             local _timestamped_log
@@ -332,7 +329,7 @@ parse_pacman_.pacnew() {
     fi
 }
 
-# Function to check for errors
+# check for errors
 check_pacman_error() {
     local error_message="$1"
 
@@ -404,7 +401,7 @@ check_pacman_error() {
             if [[ -f "$db_fixer_script" ]]; then
                 echo -e "${LIGHT_BLUE}==>> Running Pacman database repair script...${NC}"
                 sudo bash "$db_fixer_script"
-                return $?  # Return exit status
+                return $?
             else
                 echo -e "${RED}!! Pacman database repair script not found.${NC}"
                 echo -e "${ORANGE}Please download Ppm_db_fixer.sh from: https://github.com/Made2Flex/Ppm_db_fixer and run it manually.${NC}"
@@ -511,7 +508,7 @@ show_pacman_log() {
     rm -f "$temp_log"
 }
 
-# Function to strip log from colors and special characters
+# strip log from colors and special characters
 strip_log() {
     local input="$1"
     input=$(echo "$input" | sed -r "s/\x1B\[([0-9]{1,3}(;[09]{1,2})?)?[mGK]//g")
@@ -519,19 +516,17 @@ strip_log() {
     echo "$input"
 }
 
-# Function to get log file path based on distribution
+# get log file path based on distribution
 log_file_path() {
     local distro_id="${DISTRO_ID:-}"
 
     # If DISTRO_ID is not set, try to detect it
     if [[ -z "$distro_id" && -f /etc/os-release ]]; then
-        # Source the os-release file to get distribution information
-        # Use a subshell to avoid polluting the global namespace
         distro_id=$(source /etc/os-release 2>/dev/null && echo "$ID" | tr '[:upper:]' '[:lower:]')
     fi
 
     case "${distro_id:-}" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"manjaro"|"endeavouros"|"garuda")
             echo "$HOME/bk/arch/update-error.log"
             ;;
         "debian"|"ubuntu"|"linuxmint")
@@ -543,13 +538,13 @@ log_file_path() {
     esac
 }
 
-# Function to log errors and warnings
+# log errors and warnings
 log_errors() {
     local command="$1"
     local output="$2"
     local exit_code="${3:-0}"
-    local log_type="${4:-error}"  # 'error' or 'warning'
-    local create_timestamped="${5:-false}"  # Whether to create a timestamped copy
+    local log_type="${4:-error}"  # 'error', 'warning' ect
+    local create_timestamped="${5:-false}"
     local log_file
     local timestamped_log_file=""
 
@@ -598,37 +593,6 @@ log_errors() {
     echo "$timestamped_log_file"
 }
 
-# Function to check for errors and pass them to check_pacman_error()
-run_command() {
-    local command="$1"
-    local output
-
-    if [[ "$command" == sudo* ]]; then
-        # Use sudo_cached for commands that require sudo
-        output=$(sudo_cached "${command#sudo }" 2>&1 | tee /dev/tty)
-    else
-        # Capture stdout and stderr
-        output=$(eval "$command" 2>&1 | tee /dev/tty)
-    fi
-
-    local exit_code=${PIPESTATUS[0]}
-
-    # Log errors
-    local _timestamped_log
-    _timestamped_log=$(log_errors "$command" "$output" "$exit_code")
-
-    # Pass output to check_pacman_error
-    check_pacman_error "$output"
-
-    if [[ $exit_code -ne 0 ]]; then
-        echo -e "${RED}Command failed with exit code $exit_code:${NC}"
-        echo "$output"
-        return 1
-    fi
-
-    return 0
-}
-
 get_script_path() {
     readlink -f "$0"
 }
@@ -674,7 +638,22 @@ check_terminal() {
     fi
 }
 
-#show header
+header() {
+    cat << 'EOF'
+$$\   $$\                 $$\             $$\
+$$ |  $$ |                $$ |            $$ |
+$$ |  $$ | $$$$$$\   $$$$$$$ | $$$$$$\  $$$$$$\    $$$$$$\   $$$$$$\
+$$ |  $$ |$$  __$$\ $$  __$$ | \____$$\ \_$$  _|  $$  __$$\ $$  __$$\
+$$ |  $$ |$$ /  $$ |$$ /  $$ | $$$$$$$ |  $$ |    $$$$$$$$ |$$ |  \__|
+$$ |  $$ |$$ |  $$ |$$ |  $$ |$$  __$$ |  $$ |$$\ $$   ____|$$ |
+\$$$$$$  |$$$$$$$  |\$$$$$$$ |\$$$$$$$ |  \$$$$  |\$$$$$$$\ $$ |
+ \______/ $$  ____/  \_______| \_______|   \____/  \_______|\__|
+          $$ |
+          $$ |
+          \__|
+EOF
+}
+
 show_header() {
     echo -e "${BLUE}"
     header
@@ -720,7 +699,7 @@ get_system_language() {
     esac
 }
 
-# Function to greet user
+# greetings
 greet_user() {
     local username
     username=$(whoami)
@@ -732,7 +711,6 @@ greet_user() {
     printf "${GREEN}$GREET_MESSAGE${NC}\n" "$username"
 }
 
-# Function to detect distribution
 detect_distribution() {
     DISTRO=""
     DISTRO_ID=""
@@ -750,6 +728,11 @@ detect_distribution() {
                 DISTRO="Arch Linux"
                 PACKAGE_MANAGER="pacman"
                 MIRROR_REFRESH_CMD="reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist"
+                ;;
+             "garuda")
+                DISTRO="Garuda Linux"
+                PACKAGE_MANAGER="pacman"
+                MIRROR_REFRESH_CMD="sudo reflector --verbose -c US --protocol https --sort rate --latest 20 --download-timeout 5 --save /etc/pacman.d/mirrorlist"
                 ;;
             "manjaro")
                 DISTRO="Manjaro Linux"
@@ -780,7 +763,7 @@ detect_distribution() {
     fi
 }
 
-# Function to warn users about manual installation
+# warn users about manual installations
 warn_manual_install() {
     dynamic_line "Manual intervention required to install dependencies."
     echo -e "${RED}!!! Unable to automatically install dependencies.${NC}"
@@ -793,7 +776,7 @@ warn_manual_install() {
     exit 1
 }
 
-# Function to check dependencies
+# check dependencies
 check_dependencies() {
     # Detect distribution first
     detect_distribution
@@ -804,6 +787,9 @@ check_dependencies() {
     # dependencies based on distribution
     case "$DISTRO_ID" in
         "arch")
+            deps=("sudo" "pacman" "reflector" "pacman-contrib" "meld" "yay" "informant")
+            ;;
+        "garuda")
             deps=("sudo" "pacman" "reflector" "pacman-contrib" "meld" "yay" "informant")
             ;;
         "manjaro")
@@ -859,7 +845,7 @@ check_dependencies() {
         if [[ -z "$response" || "$response" == "yes" || "$response" == "y" ]]; then
             # Distribution-specific dependency installation
             case "$DISTRO_ID" in
-                "arch"|"manjaro"|"endeavouros")
+                "arch"|"garuda"|"manjaro"|"endeavouros")
                     # Arch-based installations
                     if [[ " ${missing_deps[@]} " =~ " sudo " ]]; then
                         echo -e "${ORANGE}  >> Installing sudo...${NC}"
@@ -874,7 +860,8 @@ check_dependencies() {
                                 if pacman -Q pacman-contrib &>/dev/null; then
                                     echo -e "${GREEN}  >> Done Installing pacman-contrib${NC}"
                                 else
-                                    log_errors "pacman -S --noconfirm --needed pacman-contrib" "$install_output" "$exit_code" "error" "true"
+                                    local timestamped_log
+                                    timestamped_log=$(log_errors "pacman -S --noconfirm --needed pacman-contrib" "$install_output" "$exit_code" "error" "true")
                                     echo -e "${RED}!! Failed to install pacman-contrib from repo.${NC}"
                                     echo -e "${ORANGE}  >> Output:${NC}"
                                     echo "$install_output"
@@ -960,7 +947,6 @@ check_dependencies() {
     fi
 }
 
-# Function to create pkglist
 create_pkg_list() {
     local log_file=""
     local pkg_list_file=""
@@ -968,7 +954,7 @@ create_pkg_list() {
 
     # Detect distribution-specific paths
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
             backup_dir="$HOME/bk/arch"
             log_file="$backup_dir/update-error.log"
             pkg_list_file="$backup_dir/arch-pkglst.txt"
@@ -987,7 +973,7 @@ create_pkg_list() {
     # Check if backup directory is writable
     if [ ! -w "$backup_dir" ]; then
         echo -e "${RED}!!! Backup directory does not exit: $backup_dir${NC}"
-        echo -e "${ORANGE}==>> Creating one now...${NC}"
+        echo -e "${ORANGE}  >> Creating one now...${NC}"
         mkdir -pv "$backup_dir" 2>/dev/null
         if [ $? -ne 0 ]; then
             echo -e "${RED}!! Cannot create backup directory. Check permissions and or create one manually.${NC}"
@@ -996,7 +982,7 @@ create_pkg_list() {
     fi
 
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
             # Capture package list, excluding AUR packages
             local error_output
             if ! error_output=$(pacman -Qeq --native > "$pkg_list_file" 2>&1); then
@@ -1036,10 +1022,9 @@ create_pkg_list() {
     esac
 }
 
-# Function to create aur-pkglist
 create_aur_pkg_list() {
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
             local log_file="$HOME/bk/arch/aur-pkglst.log"
             local aur_pkg_list_file="$HOME/bk/arch/aur-pkglst.txt"
 
@@ -1075,12 +1060,11 @@ create_aur_pkg_list() {
     esac
 }
 
-# Function to check mirrors
 check_mirrors() {
     echo -e "${ORANGE}==>> Checking mirror-list...${NC}"
 
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
             local mirror_sources_file="/etc/pacman.d/mirrorlist"
             local mirror_sources_backup="/etc/pacman.d/mirrorlist.backup.$(date +"%Y%m%d_%H%M%S")"
 
@@ -1205,7 +1189,7 @@ fflush() {
     >&2 echo -n ""
 }
 
-# Function to create a spinner with colors
+# create a spinner with colors
 start_spinner() {
     local spinners=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     local colors=("$GREEN" "$ORANGE" "$RED" "$BLUE" "$MAGENTA" "$LIGHT_BLUE")
@@ -1237,7 +1221,7 @@ start_spinner() {
     spinner_pid=$!
 }
 
-# Function to stop the spinner
+# stop the spinner
 stop_spinner() {
     spinner_running=false
 
@@ -1257,7 +1241,7 @@ stop_spinner() {
     spinner_pid=""
 }
 
-# Function to disable informant's default pacman hook
+# disable informant's default pacman hook
 disable_informant_hook() {
     local hook_names=("00-informant.hook")
     local dirs=("/etc/pacman.d/hooks" "/usr/share/libalpm/hooks")
@@ -1268,10 +1252,10 @@ disable_informant_hook() {
             local hook_path="$dir/$hook"
             if [ -e "$hook_path" ]; then
                 local new_path="${hook_path%.hook}.inactive"
-                echo -e "${ORANGE}==>> Disabling informant hook at ${MAGENTA}$hook_path${NC}"
+                echo -e "${ORANGE}==>> Disabling informant's hook at ${MAGENTA}$hook_path${NC}"
                 if sudo mv "$hook_path" "$new_path" &>/dev/null; then
                     disabled_any=1
-                    echo -e "${GREEN}  >> Renamed $hook_path to $new_path${NC}"
+                    echo -e "${ORANGE}  >> Renamed${NC} ${MAGENTA}$hook_path${NC} to ${GREEN}$new_path${NC}"
                 else
                     echo -e "${RED}  !! Failed to rename $hook_path to $new_path${NC}"
                 fi
@@ -1285,11 +1269,11 @@ disable_informant_hook() {
     return 0
 }
 
-# Function to rebuild informant
-rebuild_informant_after_python_update() {
-    # Check pacman logs for recent Python update
+# rebuild informant after python's been updated
+rebuild_informant() {
+    # Check logs
     local last_python_pkg
-    last_python_pkg=$(sudo grep -i --color=never 'upgraded python ' /var/log/pacman.log | tail -n 1 || true)
+    last_python_pkg=$(sudo grep -i --color=never 'upgraded python3' /var/log/pacman.log | tail -n 1 || true)
 
     # If not found, bail out
     if [[ -z "$last_python_pkg" ]]; then
@@ -1315,14 +1299,14 @@ rebuild_informant_after_python_update() {
         fi
     fi
 
-    # Disable informant hook so it doesn't overlap with our customized informant function
+    # Disable informant's hook so it doesn't overlap with our customized function
     disable_informant_hook
 }
 
-# Function to check Arch Linux news
-check_arch_news() {
+# check Arch Linux news
+check_arch_news() { 
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
             if ! command -v informant &> /dev/null; then
                 echo -e "${LIGHT_BLUE}  >> Informant not found. Skipping Arch news check.${NC}"
                 echo -e "${ORANGE}  >> Install with: ${MAGENTA}yay -S informant${NC} ${ORANGE}or${NC} ${MAGENTA}paru -S informant${NC}"
@@ -1331,26 +1315,31 @@ check_arch_news() {
 
             echo -e "${ORANGE}==>> Checking Arch Linux news...${NC}"
 
-            # Check for unread news
-            if sudo informant check &>/dev/null; then
+            # Check for unread news (exit code 0 = nothing unread, exit code 1 = some unread)
+            if informant check &>/dev/null; then
+                echo -e "${GREEN}  >> No unread Arch Linux news${NC}"
+                return 0
+            elif sudo informant check &>/dev/null; then
                 echo -e "${GREEN}  >> No unread Arch Linux news${NC}"
                 return 0
             fi
 
-            echo -e "${BROWN}==>> Unread Arch Linux news detected!${NC}"
+            echo -e "${BROWN}==>> Found unread news..${NC}"
             echo
 
             # List unread news items
             echo -e "${LIGHT_BLUE}  >> Unread news items:${NC}"
             local unread_output=""
-
-            if ! unread_output=$(sudo informant list --unread 2>/dev/null); then
-                unread_output=$(informant list --unread 2>/dev/null)
+            if ! unread_output=$(informant list --unread 2>/dev/null); then
+                unread_output=$(sudo informant list --unread 2>/dev/null)
             fi
+
             if [[ -n "$unread_output" ]]; then
                 echo "$unread_output"
             else
                 echo -e "${RED}  !! Failed to list news items${NC}"
+                # Print some debug info for troubleshooting
+                echo -e "${RED}  !! Try running 'informant list --unread' manually to see any error output.${NC}"
                 return 0  # Don't block updates if listing fails
             fi
             echo
@@ -1372,22 +1361,18 @@ check_arch_news() {
             done
 
             echo -e "${LIGHT_BLUE}  >> Opening news items...${NC}"
-            if sudo -v &>/dev/null; then
-                if sudo informant read; then
-                    echo -e "${GREEN}  >> News items marked as read${NC}"
-                else
-                    echo -e "${RED}  !! Failed to read news items using sudo${NC}"
-                    if informant read; then
-                        echo -e "${GREEN}  >> News items marked as read (without sudo)${NC}"
-                    else
-                        echo -e "${RED}  !! Failed to read news items (no sudo fallback)${NC}"
-                        return 0  # Don't block updates if reading fails
-                    fi
-                fi
+            if informant read; then
+                echo -e "${GREEN}  >> News items marked as read${NC}"
+            elif sudo -v &>/dev/null && sudo informant read; then
+                echo -e "${GREEN}  >> News items marked as read (with sudo)${NC}"
+            else
+                echo -e "${RED}  !! Failed to read news items (no sudo or informant error)${NC}"
+                return 0  # Don't block updates if reading fails
             fi
+
             ;;
         *)
-            # Not an Arch-based distribution, skip news check
+            # skip news check
             return 0
             ;;
     esac
@@ -1470,10 +1455,9 @@ show_all_news() {
     return 0
 }
 
-# Function to update the system
 update_system() {
     case "$DISTRO_ID" in
-        "arch"|"manjaro"|"endeavouros")
+        "arch"|"garuda"|"manjaro"|"endeavouros")
 
             echo -e "${ORANGE}==>> Checking 'pacman' packages to update...${NC}"
             output=$(checkupdates -c 2>/dev/null)
@@ -1481,7 +1465,7 @@ update_system() {
 
             if [[ -n "$output" ]]; then
                 echo -e "${ORANGE}  >>${NC} ${GREEN}Updates found!${NC} ${ORANGE}Proceeding with system update${NC}"
-                run_command "sudo pacman -Syyuu --noconfirm --needed"
+                run_command "sudo pacman -Syu --noconfirm --needed"
             else
                 echo -e "${GREEN}==>> Pacman packages are up-to-date.${NC}"
             fi
@@ -1522,11 +1506,12 @@ update_system() {
                     echo -e "${RED}!!! yay cache directory not found: $HOME/.cache/yay${NC}"
                 fi
 
-                rebuild_informant_after_python_update
+                echo -e "${ORANGE}==> Checking if informant needs rebuilding after system update..${NC}"
+                rebuild_informant
 
                 echo -e "${ORANGE}==>> Checking 'aur' packages to update..${NC}"
                 sleep 1
-                yay -Sua --noconfirm --norebuild --noredownload --removemake --answerclean A --noanswerdiff --noansweredit --cleanafter --useask --noanswerupgrade && yay -Yc --noconfirm
+                yay -Sua --norebuild --noredownload --removemake --cleanafter --useask --noanswerupgrade --sudoloop && yay -Yc --noconfirm
             else
                 # skip AUR update
                 :
@@ -1535,13 +1520,15 @@ update_system() {
             if [[ "$update_aur_packages" == "yes" ]]; then
                 aur_outdated=$(yay -Qua 2>/dev/null)
                 if [[ -n "$aur_outdated" ]]; then
-                    echo -e "${ORANGE}==>> System has been updated.${NC}"
+                    echo -e "${ORANGE}==>> Some AUR packages are still OUTDATED:${NC}"
+                    echo -e "${MAGENTA}$aur_outdated${NC}"
                 else
-                    echo -e "${GREEN}==>> System is Up to Date.${NC}"
+                    echo -e "${GREEN}==>> All Packages are up to date.${NC}"
                 fi
             else
-                echo -e "${GREEN}==>> System is Up to Date.${NC}"
+                echo -e "${GREEN}==>> Skipped AUR package update.${NC}"
             fi
+
             ;;
         "debian"|"ubuntu"|"linuxmint")
             echo -e "${ORANGE}==>> Checking packages to update.${NC}"
@@ -1580,7 +1567,6 @@ update_system() {
     esac
 }
 
-# Function to prompt user to update
 prompt_update() {
     while true; do
         # Use localized prompt
@@ -1601,7 +1587,6 @@ prompt_update() {
     done
 }
 
-# Function to load STATE_FILE
 load_state() {
     if [[ -f "$STATE_FILE" ]]; then
         if ! source "$STATE_FILE"; then
@@ -1631,7 +1616,7 @@ load_state() {
     fi
 }
 
-# Function to save the state to the STATE_FILE
+# save the state to the STATE_FILE
 save_state() {
     if ! echo "BTRFS_CHECKED=$BTRFS_CHECKED" > "$STATE_FILE" || ! echo "BTRFS_SNAPSHOTS_SETUP=$BTRFS_SNAPSHOTS_SETUP" >> "$STATE_FILE"; then
         echo -e "${RED}!! Failed to save state to $STATE_FILE.${NC}"
@@ -1641,7 +1626,7 @@ save_state() {
     fi
 }
 
-# Function to check if the filesystem is BTRFS and if snapshots are set up
+# check if the filesystem is BTRFS and if snapshots are set up
 check_btrfs_snapshots() {
     load_state
 
@@ -1728,6 +1713,89 @@ check_btrfs_snapshots() {
     save_state
 }
 
+show_version() {
+    echo -e "${GREEN}Version $SCRIPT_VERSION${NC}"
+}
+
+show_author() {
+    local _timestamped_log
+
+    if [[ -n "$AUTHOR" ]]; then
+        local decoded_author
+        decoded_author=$(echo "$AUTHOR" | base64 --decode 2>/dev/null)
+        if [[ $? -eq 0 ]]; then
+            echo -e "${BROWN}${decoded_author}${NC}"
+        else
+            _timestamped_log=$(log_errors "AUTHOR" "Failed to decode AUTHOR (not valid base64?)" "1" "error" "false")
+            echo -e "${RED}[ERROR]${NC} ${ORANGE}Failed to decode AUTHOR (not valid base64?)${NC}"
+        fi
+    else
+        _timestamped_log=$(log_errors "AUTHOR" "AUTHOR variable is unset." "1" "error" "false")
+        echo -e "${RED}[ERROR]${NC} ${ORANGE}AUTHOR variable is unset.${NC}"
+    fi
+}
+
+show_help() {
+    echo -e "${LIGHT_BLUE}This script is a system updater for Linux systems.${NC}"
+    echo
+    echo -e "${BLUE}Usage:${NC} ${GREEN}$0${NC} ${BLUE}[OPTIONS]${NC}"
+    echo
+    echo -e "${BLUE}Options:${NC}"
+    echo "  -h, --help     Display this help message."
+    echo "  -v, --version  Show version information."
+    echo "  -l, --log      Show recent pacman transactions."
+    echo "  -n, --news     Show linux arch news."
+    echo "  -a, --author   Show script author."
+    echo
+    echo -e "${BLUE}This script will:${NC}"
+    echo "  . Manage dependencies and their installations"
+    echo "  . Handle BTRFS snapshot setup"
+    echo "  . Create system backup via Package list"
+    echo "  . Refresh mirrors every week"
+    echo "  . Identifies database issues and attempts to fix them(Archlinux)"
+    echo "  . Perform system updates"
+    echo
+    echo -e "${BLUE}Supports:${NC}"
+    echo "   . Multiple Linux distributions"
+    echo
+    echo -e "${ORANGE}Note:${NC} This script requires root privilege for certain operations."
+    echo -e "      It comes as is, with ${RED}NO GUARANTEE!${NC}"
+}
+
+# parse args
+arg_parser() {
+    if [[ $# -gt 0 ]]; then
+        case "$1" in
+            -h|-H|--help)
+                show_help
+                exit 0
+                ;;
+            -v|-V|--version)
+                show_version
+                exit 0
+                ;;
+            -l|-L|--log)
+                show_pacman_log
+                exit 0
+                ;;
+            -a|-A|--author)
+                show_author
+                exit 0
+                ;;
+            -n|-N|--news)
+                show_all_news
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Error:${NC} ${ORANGE}Wrong argument. Please see bellow${NC}"
+                echo
+                show_help
+                exit 1
+                ;;
+        esac
+    fi
+}
+
 # Alchemist den
 main() {
     arg_parser "$@"
@@ -1737,12 +1805,13 @@ main() {
     greet_user
     cache_sudo_password
     keep_sudo_alive &  # Start sudo keeper
-    SUDO_KEEPER_PID=$! #
-	if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
-        echo -e "${RED}!! Failed to start sudo keeper process. Continuing..${NC}"
+    SUDO_KEEPER_PID=$!
+    if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
+        echo -e "${RED}!! Failed to start sudo keeper process. User interaction will be required.${NC}"
         unset SUDO_KEEPER_PID
     fi
     check_dependencies
+    disable_informant_hook
     create_pkg_list
     create_aur_pkg_list
     check_btrfs_snapshots
