@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
 
-SCRIPT_VERSION="1.4.1-2"
+SCRIPT_VERSION="1.4.1-4"
 AUTHOR="TWFkZTJGbGV4"
 
 set -uo pipefail
-# -e: exit on error
-# -u: treat unset variables as error
-# -o pipefail: capture pipeline errors
-
 
 ## // Configurations // ##
 
-# Colors
 GREEN='\033[1;32m'
 ORANGE='\033[1;33m'
 BROWN='\033[0;33m'
@@ -19,47 +14,49 @@ RED='\033[1;31m'
 BLUE='\033[0;34m'
 MAGENTA='\033[1;35m'
 LIGHT_BLUE='\033[1;36m'
-NC='\033[0m' # No color
-
-# Store AUR packages
-AUR_PACKAGES=""
+NC='\033[0m'
 
 # flags
+AUR_PACKAGES=""
 BTRFS_CHECKED=false
 BTRFS_SNAPSHOTS_SETUP=false
-spinner_running=false
-
-# stores the value of the BTRFS flags
 STATE_FILE="$HOME/.config/mr_updater/btrfs_snapshot_state.conf"
-
-# Sudo temp file
-SUDO_PASS_FILE=""
+spinner_running=false
 
 
 ## // FUNCTIONS // ##
-# Check for errors and pass them to check_pacman_error()
+
 run_command() {
     local command="$1"
     local output
 
     if [[ "$command" == sudo* ]]; then
-        # Use sudo_cached for commands that require sudo
-        output=$(sudo_cached "${command#sudo }" 2>&1 | tee /dev/tty)
+
+        if ! kill -0 "${SUDO_KEEPER_PID:-}" 2>/dev/null; then
+            echo -e "${RED}!! Sudo keepalive process has stopped.${NC}" >&2
+            echo -e "${ORANGE}Please restart the updater.${NC}" >&2
+            return 1
+        fi
+
+        if ! sudo -n -v >/dev/null 2>&1; then
+            echo -e "${RED}!! Sudo credentials have expired.${NC}" >&2
+            return 1
+        fi
+
+        output=$(eval "$command" 2>&1 | tee /dev/tty)
+
     else
-        # Capture stdout and stderr
         output=$(eval "$command" 2>&1 | tee /dev/tty)
     fi
 
-    local exit_code=${PIPESTATUS[0]}
+    local exit_code="${PIPESTATUS[0]}"
 
-    # Log
     local _timestamped_log
     _timestamped_log=$(log_errors "$command" "$output" "$exit_code")
 
-    # Pass output to check_pacman_error
     check_pacman_error "$output"
 
-    if [[ $exit_code -ne 0 ]]; then
+    if [[ "$exit_code" -ne 0 ]]; then
         echo -e "${RED}Command failed with exit code $exit_code:${NC}"
         echo "$output"
         return 1
@@ -68,102 +65,61 @@ run_command() {
     return 0
 }
 
-# cache the sudo password for the current session
-cache_sudo_password() {
+authenticate_sudo() {
     local attempts=0
     local max_attempts=3
-    local tmp_path
-
-    # Remove any previous pass file
-    if [[ -n "${SUDO_PASS_FILE:-}" && -f "$SUDO_PASS_FILE" ]]; then
-        rm -f "$SUDO_PASS_FILE"
-    fi
-
-    # mktemp file
-    tmp_path=$(mktemp)
-    chmod 600 "$tmp_path"
-    SUDO_PASS_FILE="$tmp_path"
 
     while (( attempts < max_attempts )); do
-        echo -ne "${MAGENTA}Please, enter your sudo password: ${NC}"
-        if ! read -s -t 60 password_input; then
-            echo -e "\n${RED}Error: Password input timed out after 60 seconds.${NC}"
-            rm -f "$SUDO_PASS_FILE"
-            exit 1
-        fi
-        echo
-
-        # validate password
-        if printf "%s\n" "$password_input" | sudo -S -l &>/dev/null; then
-            # Store it if sudo is valid
-            printf "%s\n" "$password_input" > "$SUDO_PASS_FILE"
-            chmod 600 "$SUDO_PASS_FILE"
-            unset password_input
+        if sudo -v; then
             return 0
         else
-            attempts=$((attempts+1))
-            echo -e "${RED}Incorrect password. Please try again.${NC}"
-            # Overwrite previous credential
-            :> "$SUDO_PASS_FILE"
+            attempts=$((attempts + 1))
+            echo -e "${RED}Incorrect sudo password or failed authentication. Please try again.${NC}" >&2
         fi
-        unset password_input
     done
 
-    echo -e "${RED}Maximum password attempts reached. Exiting.${NC}"
-    rm -f "$SUDO_PASS_FILE"
+    echo -e "${RED}Maximum sudo password attempts reached. Exiting.${NC}" >&2
     exit 1
 }
 
-# invoc the cached password
-sudo_cached() {
-    local command="$*"
-    # Test file
-    if [[ -z "${SUDO_PASS_FILE:-}" || ! -s "$SUDO_PASS_FILE" ]]; then
-        echo -e "${RED}[ERROR] SUDO password not cached.${NC}" >&2
-        return 1
-    fi
-    # Use -p '' to suppress extra prompts
-    # Reset sudo timestamp (-k) before running, to hopefully guarantee prompt usage
-    sudo -S -p '' -k bash -c "$command" < "$SUDO_PASS_FILE"
-    return $?
-}
-
-# keep sudo alive
 keep_sudo_alive() {
+    local interval=60
+
     while true; do
-        if [[ -n "${SUDO_PASS_FILE:-}" && -s "$SUDO_PASS_FILE" ]]; then
-            # refresh only.
-            if ! sudo -S -p '' -v < "$SUDO_PASS_FILE" 2>/dev/null; then
-                echo -e "${RED}!! Failed to refresh sudo.${NC}" >&2
-                return 1
-            fi
-        else
-            echo -e "${RED}!! SUDO_PASS_FILE disappeared; cannot keep sudo alive.${NC}" >&2
-            return 1
+        sleep "$interval"
+
+        if sudo -n -v >/dev/null 2>&1; then
+            continue
         fi
-        sleep 60
+
+        echo -e "${RED}!! Failed to refresh sudo credentials.${NC}" >&2
+        echo -e "${ORANGE}   >> Sudo authentication expired.${NC}" >&2
+
+        log_errors \
+            "sudo keepalive" \
+            "Failed to refresh cached sudo credentials." \
+            1 \
+            "error" \
+            "false"
+
+        return 1
     done
 }
 
-# Clean up cached password file
 clean_sudo() {
     if [[ -n "${SUDO_KEEPER_PID:-}" ]]; then
-        kill "$SUDO_KEEPER_PID" 2>/dev/null
+    kill "$SUDO_KEEPER_PID" 2>/dev/null
+    wait "$SUDO_KEEPER_PID" 2>/dev/null
     fi
-    # Remove cached password file
-    if [[ -n "${SUDO_PASS_FILE:-}" && -f "$SUDO_PASS_FILE" ]]; then
-        (dd if=/dev/zero of="$SUDO_PASS_FILE" bs=1 count=$(stat -c %s "$SUDO_PASS_FILE") conv=notrunc 2>/dev/null || true)
-        rm -f "$SUDO_PASS_FILE"
-    fi
-    unset SUDO_PASS_FILE
+
+    sudo -k >/dev/null 2>&1
+    unset SUDO_KEEPER_PID
 }
 
-# Traps
-trap 'clean_sudo' EXIT INT TERM KILL HUP QUIT ABRT PIPE ALRM USR1 USR2 STOP TSTP TTIN TTOU
+trap 'clean_sudo' EXIT INT TERM HUP QUIT ABRT PIPE ALRM USR1 USR2 TSTP TTIN TTOU
 
 dynamic() {
     local message="$1"
-    #     colors=("red" "orange" "cyan" "magenta" "dark green" "blue")
     local colors=("\033[1;31m" "\033[1;33m" "\033[1;36m" "\033[1;35m" "\033[0;32m" "\033[0;34m")
     local NC="\033[0m"
     local delay=0.1
@@ -178,9 +134,7 @@ dynamic() {
             sleep "$delay"
         done
 
-        # clear line
         printf "\r\033[K"
-        #printf "\n"
     } >&2
 }
 
@@ -214,7 +168,6 @@ check_pacman_processes() {
     fi
 }
 
-# check if pacman db is locked
 check_db_lock() {
     if [ -f /var/lib/pacman/db.lck ]; then
         echo -e "${RED}==>> Pacman database is locked.${NC}"
@@ -255,8 +208,8 @@ merge_pacnew_file() {
     echo -e "${LIGHT_BLUE}     - Use the meld GUI to resolve/merge configuration files as needed.${NC}"
     echo -e "${LIGHT_BLUE}     - Save changes and when done, exit meld and pacdiff will proceed.${NC}"
 
-    #run_command "sudo -v"
-    run_command "sudo -H DIFFPROG=meld pacdiff"
+    sudo -H DIFFPROG=meld pacdiff
+
     # check if meld window opened.
     local meld_found
     pgrep -fa meld | grep -q "meld"
@@ -778,7 +731,6 @@ warn_manual_install() {
 
 # check dependencies
 check_dependencies() {
-    # Detect distribution first
     detect_distribution
 
     local missing_deps=()
@@ -1315,7 +1267,6 @@ check_arch_news() {
 
             echo -e "${ORANGE}==>> Checking Arch Linux news...${NC}"
 
-            # Check for unread news (exit code 0 = nothing unread, exit code 1 = some unread)
             if informant check &>/dev/null; then
                 echo -e "${GREEN}  >> No unread Arch Linux news${NC}"
                 return 0
@@ -1366,7 +1317,7 @@ check_arch_news() {
             elif sudo -v &>/dev/null && sudo informant read; then
                 echo -e "${GREEN}  >> News items marked as read (with sudo)${NC}"
             else
-                echo -e "${RED}  !! Failed to read news items (no sudo or informant error)${NC}"
+                echo -e "${RED}  !! Failed to read news items${NC}"
                 return 0  # Don't block updates if reading fails
             fi
 
@@ -1799,17 +1750,13 @@ arg_parser() {
 # Alchemist den
 main() {
     arg_parser "$@"
-    get_system_language  # set up translations
+    get_system_language
     check_terminal
     show_header
     greet_user
-    cache_sudo_password
-    keep_sudo_alive &  # Start sudo keeper
+    authenticate_sudo
+    keep_sudo_alive &
     SUDO_KEEPER_PID=$!
-    if ! ps -p $SUDO_KEEPER_PID > /dev/null; then
-        echo -e "${RED}!! Failed to start sudo keeper process. User interaction will be required.${NC}"
-        unset SUDO_KEEPER_PID
-    fi
     check_dependencies
     disable_informant_hook
     create_pkg_list
